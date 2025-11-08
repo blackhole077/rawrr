@@ -75,35 +75,168 @@
         /// </summary>
         public static class IRawDataPlusExtension
         {
-    /*
-                            + "\t" + scanStatistics.TIC.ToString()
-                            + "\t" + scanStatistics.ScanType.ToString()
-                            + "\t" + scanStatistics.CycleNumber.ToString()
-                            + "\t" + scanStatistics.Frequency.ToString()
-                            + "\t" + scanStatistics.HighMass.ToString()
-                            + "\t" + scanFilter.IonizationMode.ToString()
-                            + "\t" + scanFilter.MSOrder.ToString()
-                            + "\t" + scanFilter.MassAnalyzer.ToString()
-                            + "\t" + scanFilter.Detector.ToString()
-                            + "\t" + scanFilter.Lock.ToString() + "\t");
 
-                        try
-                        {
-                            var reaction0 = scanEvent.GetReaction(0);
-                            file.Write(reaction0.PrecursorMass
-                                          + "\t" + reaction0.LastPrecursorMass
-                                          + "\t" + reaction0.CollisionEnergy
-                                          + "\t" + reaction0.IsolationWidth
-                            );
-                        }
-                        catch
-                        {
-                            file.Write("NA\tNA\tNA\tNA");
-                        }
+            /// <summary>
+            /// Generates an R script containing header information extracted from a Thermo RAW file.
+            /// The function writes metadata to the specified file in R code format, populating the <c>e$info</c> list.
+            /// 
+            /// The extracted metadata includes:
+            /// <list type="bullet">
+            ///   <item><description>File information: RAW file name, version, creation date, operator, instrument count, and description.</description></item>
+            ///   <item><description>Instrument information: model, name, method file, serial number, software and firmware versions, units, and mass resolution.</description></item>
+            ///   <item><description>Scan information: total number of scans, number of MS2 scans, scan range, time range, and mass range.</description></item>
+            ///   <item><description>Filter information: scan filters for the first and last scans, and total number of unique filters.</description></item>
+            ///   <item><description>Sample information: details from the sample, including user-provided text.</description></item>
+            /// </list>
+            /// This function is intended to facilitate downstream analysis in R by providing a comprehensive summary of the RAW file's metadata.
+            /// </summary>
+            /// <param name="rawFile">The RAW file object to extract metadata from.</param>
+            /// <param name="filename">The path to the output file where the R code will be written.</param>
+            public static void GenerateHeaderInformationAsRCode(this IRawDataPlus rawFile, string filename)
+            {
+                using (var file = new System.IO.StreamWriter(filename))
+                {
+                    file.WriteLine("#R\n");
+                    file.WriteLine("e$info <- list()\n");
+                    
+                    var fileHeader = rawFile.FileHeader;
+                    var instrumentData = rawFile.GetInstrumentData();
+                    var runHeader = rawFile.RunHeaderEx;
+                    var sampleInfo = rawFile.SampleInformation;
+                    
+                    // File information
+                    WriteInfoLine(file, "RAW file", Path.GetFileName(rawFile.FileName));
+                    WriteInfoLine(file, "RAW file version", fileHeader.Revision);
+                    WriteInfoLine(file, "Creation date", fileHeader.CreationDate);
+                    WriteInfoLine(file, "Operator", fileHeader.WhoCreatedId);
+                    WriteInfoLine(file, "Number of instruments", rawFile.InstrumentCount);
+                    WriteInfoLine(file, "Description", fileHeader.FileDescription);
+                    
+                    // Instrument information
+                    WriteInfoLine(file, "Instrument model", instrumentData.Model);
+                    WriteInfoLine(file, "Instrument name", instrumentData.Name);
+                    WriteInfoLine(file, "Serial number", instrumentData.SerialNumber);
+                    WriteInfoLine(file, "Software version", instrumentData.SoftwareVersion);
+                    WriteInfoLine(file, "Firmware version", instrumentData.HardwareVersion);
+                    WriteInfoLine(file, "Units", instrumentData.Units);
+                    WriteInfoLine(file, "Mass resolution", $"{runHeader.MassResolution:F3}");
+                    // Instrument methods
+                    WriteInstrumentMethods(file, rawFile);
 
+                    // Scan information
+                    int firstScanNumber = runHeader.FirstSpectrum;
+                    int lastScanNumber = runHeader.LastSpectrum;
+                    int ms2Count = Enumerable.Range(firstScanNumber, lastScanNumber - firstScanNumber + 1)
+                        .Count(x => rawFile.GetFilterForScanNumber(x).ToString().Contains("Full ms2"));
+                    
+                    WriteInfoLine(file, "Number of scans", runHeader.SpectraCount);
+                    WriteInfoLine(file, "Number of ms2 scans", ms2Count);
+                    file.WriteLine($"e$info$`Scan range` <- c({firstScanNumber}, {lastScanNumber})");
+                    file.WriteLine($"e$info$`Time range` <- c({runHeader.StartTime:F2}, {runHeader.EndTime:F2})");
+                    file.WriteLine($"e$info$`Mass range` <- c({runHeader.LowMass:F4}, {runHeader.HighMass:F4})");
+                    
+                    // Filter information
+                    var firstFilter = rawFile.GetFilterForScanNumber(firstScanNumber);
+                    var lastFilter = rawFile.GetFilterForScanNumber(lastScanNumber);
+                    WriteInfoLine(file, "Scan filter (first scan)", firstFilter.ToString());
+                    WriteInfoLine(file, "Scan filter (last scan)", lastFilter.ToString());
+                    WriteInfoLine(file, "Total number of filters", rawFile.GetFilters().Count);
+                    
+                    // Sample information
+                    WriteSampleInfo(file, sampleInfo);
+                    
+                    // User text
+                    WriteUserText(file, sampleInfo.UserText);
+                    
+                }
+            }
 
-    */
+            private static void WriteInfoLine(StreamWriter file, string key, object value)
+            {
+                file.WriteLine($"e$info$`{key}` <- '{value}'");
+            }
 
+            private static void WriteSampleInfo(StreamWriter file, ISampleInformation sampleInfo)
+            {
+                WriteInfoLine(file, "Sample name", sampleInfo.SampleName);
+                WriteInfoLine(file, "Sample id", sampleInfo.SampleId);
+                WriteInfoLine(file, "Sample type", sampleInfo.SampleType);
+                WriteInfoLine(file, "Sample comment", sampleInfo.Comment);
+                WriteInfoLine(file, "Sample vial", sampleInfo.Vial);
+                WriteInfoLine(file, "Sample volume", sampleInfo.SampleVolume);
+                WriteInfoLine(file, "Sample injection volume", sampleInfo.InjectionVolume);
+                WriteInfoLine(file, "Sample row number", sampleInfo.RowNumber);
+                WriteInfoLine(file, "Sample dilution factor", sampleInfo.DilutionFactor);
+                WriteInfoLine(file, "Sample barcode", sampleInfo.Barcode);
+            }
+
+            private static void WriteUserText(StreamWriter file, string[] userText)
+            {
+                for (int i = 0; i < Math.Min(userText.Length, 5); i++)
+                {
+                    WriteInfoLine(file, $"User text {i}", userText[i]);
+                }
+            }
+
+            /// <summary>
+            /// Extracts and writes instrument method information to the output R code file.
+            /// 
+            /// This method retrieves all instrument methods from the RAW file and writes them as an R list structure.
+            /// Each instrument method includes the instrument's friendly name (or a fallback index-based name) and 
+            /// the complete method content. The output is formatted as nested R lists for easy parsing.
+            /// 
+            /// The method handles multiple instruments within a single RAW file (e.g., LC pump, MS detector, 
+            /// autosampler) and writes them in the format:
+            /// <code>
+            /// e$info$`Instrument methods`[[1]] &lt;- list(
+            ///     name = 'LC Pump',
+            ///     method = '...'
+            /// )
+            /// </code>
+            /// 
+            /// Special characters in method content (backslashes, newlines, quotes) are properly escaped 
+            /// for R string compatibility.
+            /// </summary>
+            /// <param name="file">The StreamWriter for the output R code file.</param>
+            /// <param name="rawFile">The RAW file object containing instrument method information.</param>
+            private static void WriteInstrumentMethods(StreamWriter file, IRawDataPlus rawFile)
+            {
+                try
+                {
+                    // Get all instrument friendly names from the instrument method
+                    var instrumentFriendlyNames = rawFile.GetAllInstrumentFriendlyNamesFromInstrumentMethod();
+                    
+                    // Get the number of instrument methods
+                    int methodCount = rawFile.InstrumentMethodsCount;
+                    
+                    file.WriteLine($"e$info$`Number of instrument methods` <- {methodCount}");
+                    file.WriteLine("e$info$`Instrument methods` <- list()");
+                    
+                    for (int i = 0; i < methodCount; i++)
+                    {
+                        // Use friendly name if available, otherwise fall back to index-based name
+                        string instrumentName = i < instrumentFriendlyNames.Count 
+                            ? instrumentFriendlyNames[i] 
+                            : $"Instrument_{i}";
+                        
+                        string methodContent = rawFile.GetInstrumentMethod(i)
+                            .Replace("\\", "/")
+                            .Replace("\n", "\\n")
+                            .Replace("\r", "")
+                            .Replace("'", "\\'");
+                        
+                        file.WriteLine($"e$info$`Instrument methods`[[{i + 1}]] <- list(");
+                        file.WriteLine($"\tname = '{instrumentName}',");
+                        file.WriteLine($"\tmethod = '{methodContent}'");
+                        file.WriteLine(")");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // If method extraction fails, log it but don't crash
+                    file.WriteLine($"# Warning: Could not extract instrument methods: {ex.Message}");
+                }
+            }
             /// <summary>
             /// write file header (metainfo) into R code
             /// </summary>
@@ -237,7 +370,7 @@
              	    int firstScanNumber = rawFile.RunHeaderEx.FirstSpectrum;
             	    int lastScanNumber = rawFile.RunHeaderEx.LastSpectrum;
 		    int charge = -1;
-		    double pc=-1;
+		    double precursorMass=-1;
                     Dictionary<string, string> ScanTrailerDict;
 
                 using (System.IO.StreamWriter file =
@@ -256,10 +389,10 @@
 
 		        try{
                           var reaction0 = scanEvent.GetReaction(0);
-		          pc =  reaction0.PrecursorMass;
+		          precursorMass =  reaction0.PrecursorMass;
 		        }
 		        catch{
-			  pc = -1;
+			  precursorMass = -1;
 		        }
 
 		        try{
@@ -274,7 +407,7 @@
                         file.WriteLine("\tscanType = \"{0}\";", scanStatistics.ScanType.ToString());
                         file.WriteLine("\tStartTime = {0},", scanStatistics.StartTime);
                         file.WriteLine("\trtinseconds = {0};", Math.Round(scanStatistics.StartTime * 60 * 1000) / 1000);
-                        file.WriteLine("\tprecursorMass = {0};", pc);
+                        file.WriteLine("\tprecursorMass = {0};", precursorMass);
 			file.WriteLine("\tMSOrder = '{0}';", scanFilter.MSOrder.ToString());
                         file.WriteLine("\tcharge = {0}", charge);
                                 file.WriteLine(")");
@@ -539,9 +672,80 @@
 
                 return;
             }
-
-        }
-    }
+            /// <summary>
+            /// Extracts LC gradient information from the instrument method
+            /// </summary>
+            public static void ExtractLCGradient(this IRawDataPlus rawFile, string filename)
+            {
+                try
+                {
+                    // Get the instrument method - typically instrument 0 is the LC
+                    var instrumentMethod = rawFile.GetInstrumentMethod(0);
+                    
+                    using (var file = new System.IO.StreamWriter(filename))
+                    {
+                        file.WriteLine("#R\n");
+                        file.WriteLine("e$gradient <- list()\n");
+                        
+                        // The instrument method is typically in XML or plain text format
+                        // Parse the method string to extract gradient information
+                        var methodText = instrumentMethod.ToString();
+                        
+                        // Use regex patterns to extract gradient table information
+                        var timestampPattern = @"Time\s*[:=]\s*([\d.]+)";
+                        var percentBPattern = @"%B\s*[:=]\s*([\d.]+)";
+                        var flowRatePattern = @"Flow\s*[:=]\s*([\d.]+)";
+                        var curvePattern = @"Curve\s*[:=]\s*(\d+)";
+                        
+                        var lines = methodText.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                        int gradientIndex = 1;
+                        
+                        foreach (var line in lines)
+                        {
+                            var timeMatch = System.Text.RegularExpressions.Regex.Match(line, timestampPattern);
+                            var percentBMatch = System.Text.RegularExpressions.Regex.Match(line, percentBPattern);
+                            var flowMatch = System.Text.RegularExpressions.Regex.Match(line, flowRatePattern);
+                            var curveMatch = System.Text.RegularExpressions.Regex.Match(line, curvePattern);
+                            
+                            if (timeMatch.Success || percentBMatch.Success || flowMatch.Success)
+                            {
+                                file.WriteLine($"e$gradient[[{gradientIndex}]] <- list(");
+                                
+                                if (timeMatch.Success)
+                                    file.WriteLine($"\ttimestamp = {timeMatch.Groups[1].Value},");
+                                else
+                                    file.WriteLine("\ttimestamp = NA,");
+                                
+                                if (percentBMatch.Success)
+                                    file.WriteLine($"\tpercentB = {percentBMatch.Groups[1].Value},");
+                                else
+                                    file.WriteLine("\tpercentB = NA,");
+                                
+                                if (flowMatch.Success)
+                                    file.WriteLine($"\tflowRate = {flowMatch.Groups[1].Value},");
+                                else
+                                    file.WriteLine("\tflowRate = NA,");
+                                
+                                if (curveMatch.Success)
+                                    file.WriteLine($"\tcurve = {curveMatch.Groups[1].Value}");
+                                else
+                                    file.WriteLine("\tcurve = NA");
+                                
+                                file.WriteLine(")");
+                                gradientIndex++;
+                            }
+                        }
+                        
+                        file.WriteLine($"\ne$gradient$length <- {gradientIndex - 1}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"Error extracting LC gradient: {ex.Message}");
+                }
+            }
+        } // end IRawDataPlusExtension class
+    } // end FGCZExtensions namespace
 
     namespace FGCZ_Raw
     {
@@ -553,27 +757,29 @@
 	        {
 		        // This local variable controls if the AnalyzeAllScans method is called
 		        // bool analyzeScans = false;
-		        const string rawrr_version = "1.17.2";
+		        const string rawrrVersion = "1.17.2";
 		        string filename = string.Empty;
 		        string mode = string.Empty;
 		        string filterString = string.Empty;
-		        Hashtable hashtable = new Hashtable()
-		        {
-			        {"filter", "List all scan ids pass the filter string (option 2)."},
-			        {"getFilters", "List all scan filters of a given raw file."},
-			        {"isValidFilter", "Checks whether the provided argument string (option 2) is a valid filter."},
-			        {"headerR", "Writes the raw file's meta data as R code to a file."},
-			        {"chromatogram", "Extracts base peak and total ion count chromatograms into a file."},
-			        {
-				        "xic",
-				        "Extracts filtered (option 2) ion chromatograms within a given mass and mass tolerance [in ppm] (option 3) xic of a given raw file as R code into a file."
-			        },
-			        {"scans", "Extracts scans (spectra) of a given ID as Rcode."},
-			        {"barebone", "Extracts 'barebone' scans (spectra), including only mZ, intensity , precursorMass, rtinsecodonds and charge state, of a given ID as Rcode."},
-			        {"index", "Prints index as csv of all scans."},
-			        {"trailer", "Prints all trailer labels."}
-		        };
-		        var helpOptions = new List<string>() {"help", "--help", "-h", "h", "/h"};
+                Hashtable hashtable = new Hashtable()
+                                {
+                                    {"filter", "List all scan ids pass the filter string (option 2)."},
+                                    {"getFilters", "List all scan filters of a given raw file."},
+                                    {"isValidFilter", "Checks whether the provided argument string (option 2) is a valid filter."},
+                                    {"headerR", "Writes the raw file's meta data as R code to a file."},
+                                    {"enhancedHeaderR", "Writes enhanced raw file meta data as R code to a file."},
+                                    {"gradient", "Extracts LC gradient information from the instrument method as R code to a file."},
+                                    {"chromatogram", "Extracts base peak and total ion count chromatograms into a file."},
+                                    {
+                                        "xic",
+                                        "Extracts filtered (option 2) ion chromatograms within a given mass and mass tolerance [in ppm] (option 3) xic of a given raw file as R code into a file."
+                                    },
+                                    {"scans", "Extracts scans (spectra) of a given ID as Rcode."},
+                                    {"barebone", "Extracts 'barebone' scans (spectra), including only mZ, intensity , precursorMass, rtinsecodonds and charge state, of a given ID as Rcode."},
+                                    {"index", "Prints index as csv of all scans."},
+                                    {"trailer", "Prints all trailer labels."}
+                                };
+                                var helpOptions = new List<string>() {"help", "--help", "-h", "h", "/h"};
 		        var versionOptions = new List<string>() {"version", "--version", "-v", "-V", "/v"};
 
 		        if (args.Length >= 2){
@@ -597,7 +803,7 @@
 			        }
 			        else if (versionOptions.Contains(args[0]))
                                 {
-				        Console.WriteLine(rawrr_version);
+				        Console.WriteLine(rawrrVersion);
 				        Environment.Exit(0);
                                 }
 			        else if (helpOptions.Contains(args[0]))
@@ -675,6 +881,18 @@
 	                    var outputFilename = args[3];
 	                    rawFile.PrintHeaderAsRcode(outputFilename);
 	                    return;
+                    }
+                    else if (mode == "enhancedHeaderR")
+                    {
+                        var outputFilename = args[3];
+                        rawFile.GenerateHeaderInformationAsRCode(outputFilename);
+                        return;
+                    }
+                    else if (mode == "gradient")
+                    {
+                        var outputFilename = args[2];
+                        rawFile.ExtractLCGradient(outputFilename);
+                        return;
                     }
 
                     // Get the number of filters present in the RAW file
@@ -789,12 +1007,12 @@
                         {
 
                             // parses the input while accepting only integers greater than 0
-			    try{
-                            Int32.TryParse(line, out scanNumber);
-			    if (scanNumber > 0)
-                        	    scans.Add(scanNumber);
-			    }
-			    catch{}
+                            try{
+                                    Int32.TryParse(line, out scanNumber);
+                            if (scanNumber > 0)
+                                    scans.Add(scanNumber);
+                            }
+                            catch{}
                         }
 
 		        if (scans.Count == 0)
@@ -891,7 +1109,7 @@ using (System.IO.StreamWriter file =
 		                         new System.IO.StreamWriter(filename))
 		                     {
 		// TODO(tk@fgcz.ethz.ch): check mass interval for chromatograms and its dep for diff MS detector types
-		// TODO(cp@fgcz.ethz.ch): return mass intervals to the R enviroment
+		// TODO(cp@fgcz.ethz.ch): return mass intervals to the R environment
                 // Define the settings for getting the Base Peak chromatogram
                 ChromatogramTraceSettings settingsTIC = new ChromatogramTraceSettings(TraceType.TIC){Filter=filter};
                 ChromatogramTraceSettings settingsBasePeak = new ChromatogramTraceSettings(TraceType.BasePeak){

@@ -1,6 +1,6 @@
 # System requirements
 
-The `rawrr` executable will run out of the box. 
+The `rawrr` executable will run out of the box.
 
 I you want to build on your own follow the text below.
 
@@ -11,7 +11,6 @@ the .NET 8.0
 
 ### Linux (debian:10/ubuntu:20.04) (debian:12/ubuntu:24)
 
-
 ```{sh}
 ## DEPRECIATED: sudo apt-get install mono-mcs mono-xbuild
 sudo apt-get install dotnet-sdk-8.0
@@ -19,26 +18,25 @@ sudo apt-get install dotnet-sdk-8.0
 
 ### macOS (Catalina/BigSur/.../Sequoia)
 
-https://dotnet.microsoft.com/en-us/download
+<https://dotnet.microsoft.com/en-us/download>
 
 ### Microsoft Windows
 
-https://dotnet.microsoft.com/en-us/download
+<https://dotnet.microsoft.com/en-us/download>
 
-## Install the .NET assemblies 
+## Install the .NET assemblies
 
 assemblies aka Common Intermediate Language bytecode
 
 In general, ThermoFisher.CommonCore dlls can be obtained through:
 
-https://github.com/thermofisherlsms/RawFileReader
+<https://github.com/thermofisherlsms/RawFileReader>
 
-or 
+or
 
 by contacting Jim Shofstahl using
 
-jim.Shofstahl@thermofisher.com
-
+<jim.Shofstahl@thermofisher.com>
 
 ## build
 
@@ -48,33 +46,61 @@ jim.Shofstahl@thermofisher.com
 
 * (cross)-dcompile and link
 
+You can use the provided `rawrrassembly/build.sh` script to automate publishing the `rawrr-dotnet.csproj` for multiple platforms. This script handles building and placing the assemblies in the appropriate cache directories for macOS, Windows, and Linux.
+
+To use the script:
+
+```sh
+cd rawrrassembly
+./build.sh
 ```
+
+This will generate the platform-specific assemblies in:
+
+* `/Users/cp/Library/Caches/org.R-project.R/R/rawrr/rawrrassembly/osx-x64`
+* `/Users/cp/Library/Caches/org.R-project.R/R/rawrr/rawrrassembly/win-x64`
+* `/Users/cp/Library/Caches/org.R-project.R/R/rawrr/rawrrassembly/linux-x64`
+
+Alternatively, you can manually publish using the following commands:
+
+```sh
 dotnet publish rawrr-dotnet.csproj --os osx -a x64 --output /Users/cp/Library/Caches/org.R-project.R/R/rawrr/rawrrassembly/osx-x64
 dotnet publish rawrr-dotnet.csproj --os win -a x64 --output /Users/cp/Library/Caches/org.R-project.R/R/rawrr/rawrrassembly/win-x64
 dotnet publish rawrr-dotnet.csproj --os linux -a x64 --output /Users/cp/Library/Caches/org.R-project.R/R/rawrr/rawrrassembly/linux-x64
+```
 
+To generate a single large (~110MB) binary for each platform:
 
-## generates a ~110MB BLOB
+```sh
 dotnet publish -c Release -r linux-x64 -p PublishReadyToRun=true
 dotnet publish -c Release -r win-x64 -p PublishReadyToRun=true
 dotnet publish -c Release -r osx-x64 -p PublishReadyToRun=true
 ```
 
-
 ## Docker
 
-The `Dockerfile` performing `R CMD build` and `R CMD check` requires
+### Build the image
 
-```
-from bioconductor/bioconductor_docker:devel
-run apt-get update && apt-get install dotnet-sdk-8.0 -y
-run R -q -e "BiocManager::install(c('BiocStyle', 'ExperimentHub', 'knitr', 'protViz', 'rmarkdown', 'tartare', 'testthat'))"
+```sh
+docker build -t rawrr:latest .
 ```
 
+### Run interactively
+
+```sh
+docker run -it --rm -v $(pwd):/workspace rawrr:latest
+```
+
+### Build and check the package
+
+```sh
+docker run -it --rm -v $(pwd):/workspace rawrr:latest R CMD build .
+docker run -it --rm -v $(pwd):/workspace rawrr:latest R CMD check rawrr_*.tar.gz
+```
 
 ## Required packages to run `R CMD INSTALL`
 
-```
+```r
 BiocManager::install('ExperimentHub')
 BiocManager::install('tartare')
 ```

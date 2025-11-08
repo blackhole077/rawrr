@@ -1,0 +1,46 @@
+# Git files
+.git
+.gitignore
+.gitattributes
+
+# R files
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+
+# Build artifacts
+*.tar.gz
+*.o
+*.so
+*.dll
+*.exe
+*.dylib
+
+# Documentation build artifacts
+*.pdf
+*.html
+*.log
+*.aux
+*.out
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE files
+.vscode
+.idea
+*.code-workspace
+
+# Test outputs
+tests/testthat/_snaps
+*.Rcheck
+
+# Temporary files
+tmp/
+temp/
