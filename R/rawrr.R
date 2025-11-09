@@ -171,6 +171,63 @@ is.rawrrSpectrum <- function(x){
 	 is.numeric(x$intensity)))
 }
 
+#' List available analog channels
+#'
+#' @inheritParams readFileHeader
+#' @return A list with channel count and indices
+#' @export
+#' @examples
+#' \dontrun{
+#' channels <- readAnalogChannels(sampleFilePath())
+#' print(channels$count)
+#' }
+readAnalogChannels <- function(rawfile) {
+  .isAssemblyWorking()
+  rawfile <- normalizePath(rawfile)
+  .checkRawFile(rawfile)
+  
+  exe <- .rawrrAssembly()
+  tfo <- tempfile(fileext = ".R")
+  
+  system2(exe, args = c(shQuote(rawfile), "listAnalogChannels", shQuote(tfo)))
+  
+  e <- new.env()
+  source(tfo, local = e)
+  unlink(tfo)
+  
+  e$analogChannels
+}
+
+#' Read analog channel data (LC pressure, etc.)
+#'
+#' @inheritParams readFileHeader
+#' @param channel Integer channel index (default 0 for pressure)
+#' @return A list with times and values
+#' @export
+#' @examples
+#' \dontrun{
+#' rawfile <- sampleFilePath()
+#' pressureData <- readAnalogChannel(rawfile, channel = 0)
+#' plot(pressureData$times, pressureData$values, type='l', 
+#'      xlab='Time (min)', ylab='Pressure')
+#' }
+readAnalogChannel <- function(rawfile, channel = 0) {
+  .isAssemblyWorking()
+  rawfile <- normalizePath(rawfile)
+  .checkRawFile(rawfile)
+  
+  exe <- .rawrrAssembly()
+  tfo <- tempfile(fileext = ".R")
+  
+  system2(exe, args = c(shQuote(rawfile), "analogChannel", channel, shQuote(tfo)))
+  
+  e <- new.env()
+  source(tfo, local = e)
+  unlink(tfo)
+  
+  e$analogData
+}
+
 #' Function to check if an object is an instance of class \code{rawrrSpectrumSet}
 #'
 #' @param x any R object to be tested.

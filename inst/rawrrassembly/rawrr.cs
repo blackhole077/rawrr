@@ -238,6 +238,81 @@
                 }
             }
             /// <summary>
+            /// Extracts analog channel data (e.g., LC pressure) as R code
+            /// </summary>
+            /// <param name="rawFile">The RAW file object</param>
+            /// <param name="filename">Output file for R code</param>
+            /// <param name="channelIndex">The analog channel index (0-based)</param>
+            public static void WriteAnalogChannelDataAsRcode(this IRawDataPlus rawFile, string filename, int channelIndex)
+            {
+                using (System.IO.StreamWriter file = new System.IO.StreamWriter(filename))
+                {
+                    file.WriteLine("#R\n");
+                    file.WriteLine("e$analogData <- list()\n");
+                    
+                    // Select analog device
+                    rawFile.SelectInstrument(Device.Analog, 1);
+                    
+                    int firstScan = rawFile.RunHeaderEx.FirstSpectrum;
+                    int lastScan = rawFile.RunHeaderEx.LastSpectrum;
+                    
+                    file.WriteLine("e$analogData$channel <- {0}", channelIndex);
+                    file.WriteLine("e$analogData$times <- c()");
+                    file.WriteLine("e$analogData$values <- c()");
+                    
+                    List<double> times = new List<double>();
+                    List<double> values = new List<double>();
+                    
+                    for (int scan = firstScan; scan <= lastScan; scan++)
+                    {
+                        var scanStats = rawFile.GetScanStatsForScanNumber(scan);
+                        var analogScan = rawFile.GetSegmentedScanFromScanNumber(scan, null);
+                        
+                        if (analogScan != null && analogScan.Positions != null && 
+                            channelIndex < analogScan.Positions.Length)
+                        {
+                            times.Add(scanStats.StartTime);
+                            values.Add(analogScan.Intensities[channelIndex]);
+                        }
+                    }
+                    
+                    file.WriteLine("e$analogData$times <- c(" + string.Join(", ", times) + ")");
+                    file.WriteLine("e$analogData$values <- c(" + string.Join(", ", values) + ")");
+                    
+                    // Reset to MS instrument
+                    rawFile.SelectInstrument(Device.MS, 1);
+                }
+            }
+
+            /// <summary>
+            /// Lists available analog channels in the RAW file
+            /// </summary>
+            public static void ListAnalogChannels(this IRawDataPlus rawFile, string filename)
+            {
+                using (System.IO.StreamWriter file = new System.IO.StreamWriter(filename))
+                {
+                    file.WriteLine("#R\n");
+                    file.WriteLine("e$analogChannels <- list()\n");
+                    
+                    rawFile.SelectInstrument(Device.Analog, 1);
+                    
+                    var firstScan = rawFile.GetSegmentedScanFromScanNumber(rawFile.RunHeaderEx.FirstSpectrum, null);
+                    
+                    if (firstScan != null && firstScan.Positions != null)
+                    {
+                        file.WriteLine("e$analogChannels$count <- {0}", firstScan.Positions.Length);
+                        file.WriteLine("e$analogChannels$indices <- 0:{0}", firstScan.Positions.Length - 1);
+                    }
+                    else
+                    {
+                        file.WriteLine("e$analogChannels$count <- 0");
+                        file.WriteLine("e$analogChannels$indices <- integer(0)");
+                    }
+                    
+                    rawFile.SelectInstrument(Device.MS, 1);
+                }
+            }
+            /// <summary>
             /// write file header (metainfo) into R code
             /// </summary>
             public static void PrintHeaderAsRcode(this IRawDataPlus rawFile, string filename)
@@ -769,6 +844,8 @@
                                     {"headerR", "Writes the raw file's meta data as R code to a file."},
                                     {"enhancedHeaderR", "Writes enhanced raw file meta data as R code to a file."},
                                     {"gradient", "Extracts LC gradient information from the instrument method as R code to a file."},
+                                    {"analogChannel", "Extracts analog channel data (LC pressure, etc.) as R code."},
+                                    {"listAnalogChannels", "Lists available analog channels."},
                                     {"chromatogram", "Extracts base peak and total ion count chromatograms into a file."},
                                     {
                                         "xic",
@@ -934,7 +1011,20 @@
 	                    Console.WriteLine(IsValidFilter(rawFile, args[2].ToString()).ToString());
                         Environment.Exit(0);
                     }
+                    if (mode == "analogChannel")
+                    {
+                        int channelIndex = int.Parse(args[2]);
+                        var outputFilename = args[3];
+                        rawFile.WriteAnalogChannelDataAsRcode(outputFilename, channelIndex);
+                        return;
+                    }
 
+                    if (mode == "listAnalogChannels")
+                    {
+                        var outputFilename = args[2];
+                        rawFile.ListAnalogChannels(outputFilename);
+                        return;
+                    }
                     if (mode == "getFilters")
                     {
                         foreach (var filter in rawFile.GetFilters())
