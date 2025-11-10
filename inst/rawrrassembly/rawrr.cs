@@ -215,7 +215,7 @@
                     for (int i = 0; i < methodCount; i++)
                     {
                         // Use friendly name if available, otherwise fall back to index-based name
-                        string instrumentName = i < instrumentFriendlyNames.Count 
+                        string instrumentName = i < instrumentFriendlyNames.Count() 
                             ? instrumentFriendlyNames[i] 
                             : $"Instrument_{i}";
                         
