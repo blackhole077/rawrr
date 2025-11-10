@@ -1,0 +1,35 @@
+name: Build RawrrAssembly on Devel
+
+on:
+  push:
+    branches:
+      - devel
+    paths:
+      - 'inst/rawrrassembly/**'
+      - '.github/workflows/build_rawrrassembly.yml'
+  workflow_dispatch:
+
+env:
+  DOTNET_DOCKER: mcr.microsoft.com/dotnet/sdk:8.0
+
+jobs:
+  build:
+    name: Build Executables
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+          
+      - name: Pull .NET Docker image
+        run: docker pull $DOTNET_DOCKER
+        
+      - name: Build executables
+        run: |
+          cd inst/rawrrassembly
+          docker run --rm -v $PWD:/app -w /app $DOTNET_DOCKER /app/build.sh /app /app/out
+          
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rawrr-executables
+          path: inst/rawrrassembly/out/rawrr-*
+          retention-days: 90

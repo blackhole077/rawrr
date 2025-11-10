@@ -7,19 +7,21 @@ env:
   DOTNET_DOCKER: mcr.microsoft.com/dotnet/sdk:8.0
 jobs:
   build:
-    name: Build Assembly
+    name: Build Executables
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Pull image
+      - name: Pull .NET Docker image
         run: docker pull $DOTNET_DOCKER
-      - name: Build
-        run: cd inst/rawrrassembly && docker run --rm -v $PWD:/app -w /app $DOTNET_DOCKER /app/build.sh /app /app/out
-      - name: Publish results
+      - name: Build executables
+        run: |
+          cd inst/rawrrassembly
+          docker run --rm -v $PWD:/app -w /app $DOTNET_DOCKER /app/build.sh /app /app/out
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: rawrr
-          path: inst/rawrrassembly/out
+          name: rawrr-executables
+          path: inst/rawrrassembly/out/rawrr-*
           retention-days: 1
   verify-linux:
     name: Verify on Linux
@@ -27,46 +29,49 @@ jobs:
     needs: build
     steps:
       - uses: actions/checkout@v4
-      - name: Download results
+      - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: rawrr
-      - name: List result
-        run: tree
+          name: rawrr-executables
+          path: ./executables
+      - name: List executables
+        run: ls -lh ./executables
       - name: Make executable
-        run: chmod +x rawrr-linux-x64
+        run: chmod +x ./executables/rawrr-linux-x64
       - name: Execute on test file
-        run: ./rawrr-linux-x64 ./inst/extdata/sample.raw index
+        run: ./executables/rawrr-linux-x64 ./inst/extdata/sample.raw index
   verify-windows:
     name: Verify on Windows
     runs-on: windows-latest
     needs: build
     steps:
       - uses: actions/checkout@v4
-      - name: Download results
+      - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: rawrr
-      - name: List result
-        run: dir
+          name: rawrr-executables
+          path: .\executables
+      - name: List executables
+        run: dir .\executables
       - name: Execute on test file
-        run: .\rawrr-win-x64.exe .\inst\extdata\sample.raw index
+        run: .\executables\rawrr-win-x64.exe .\inst\extdata\sample.raw index
   verify-macos:
     name: Verify on MacOS
     runs-on: macos-latest
     needs: build
     steps:
       - uses: actions/checkout@v4
-      - name: Download results
+      - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: rawrr
-      - name: List result
-        run: ls -l
+          name: rawrr-executables
+          path: ./executables
+      - name: List executables
+        run: ls -lh ./executables
       - name: Make executable
-        run: chmod +x rawrr-osx-x64
+        run: chmod +x ./executables/rawrr-osx-x64
       - name: Execute on test file
-        run: ./rawrr-osx-x64 ./inst/extdata/sample.raw index
+        run: ./executables/rawrr-osx-x64 ./inst/extdata/sample.raw index
   upload-release-artifacts:
     name: Upload Release Artifacts
     runs-on: ubuntu-latest
@@ -76,18 +81,17 @@ jobs:
       - verify-macos
     if: github.event_name == 'release'
     steps:
-      - uses: actions/checkout@v4
-      - name: Download all artifacts
+      - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
-          name: rawrr
-          path: dist
+          name: rawrr-executables
+          path: ./executables
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            dist/rawrr-linux-x64
-            dist/rawrr-win-x64.exe
-            dist/rawrr-osx-x64
+            executables/rawrr-linux-x64
+            executables/rawrr-win-x64.exe
+            executables/rawrr-osx-x64
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

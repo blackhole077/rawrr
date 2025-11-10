@@ -1,35 +1,30 @@
 [![Project Status: Active – The project has reached a stable, usable state and is being actively developed.](https://www.repostatus.org/badges/latest/active.svg)](https://www.repostatus.org/#active)
-[![JPR](https://img.shields.io/badge/JPR-10.1021%2Facs.jproteome.0c00866-brightgreen)](http://dx.doi.org/10.1021/acs.jproteome.0c00866)
-[![codecov](https://codecov.io/gh/fgcz/rawrr/branch/master/graph/badge.svg?token=OO4Y7G4UUX)](https://codecov.io/gh/fgcz/rawrr)
-[![bioc-check](https://bioconductor.org/shields/build/devel/bioc/rawrr.svg)](http://bioconductor.org/checkResults/devel/bioc-LATEST/rawrr/)
-![Downloads](https://img.shields.io/github/downloads/fgcz/rawrr/total)
 
 ![rawrrHexSticker](rawrr_logo.png)
 
-# rawrr
+# rawrr (Fork)
 
-The package provides access to proprietary Thermo Fisher Scientific Orbitrap instrument data as a stand-alone R package or serves as [MsRawFileReaderBackend](https://github.com/cpanse/MsBackendRawFileReader) for the Bioconductor [Spectra](https://bioconductor.org/packages/Spectra/) package.
-rawrr wraps the functionality of the [RawFileReader](https://github.com/thermofisherlsms/RawFileReader) [.NET assembly](https://www.mono-project.com/docs/advanced/assemblies-and-the-gac/). 
-Test files are provided by the [tartare](https://bioconductor.org/packages/tartare/) ExperimentData package.
+This repository is a fork of [fgcz/rawrr](https://github.com/fgcz/rawrr). The fork introduces several changes and improvements:
 
-## Install
+- **Refactored codebase** for improved maintainability and modularity.
+- **Enhanced support for additional Thermo Fisher Scientific Orbitrap data formats.**
+- **Updated dependencies** and build scripts for compatibility with newer R and .NET versions.
+- **New command-line executables** for streamlined data access and processing.
+- **Expanded documentation** and usage examples.
 
-Please follow the [INSTALL](https://bioconductor.org/packages/release/bioc/install/rawrr/INSTALL) instructions provided through 
+## Building and Using Executables
 
-https://bioconductor.org/packages/rawrr/
+Instructions for building and using the provided executables are available in [`bin/README.md`](bin/README.md). In summary:
 
-The latest source package build [bioconductor devel branch](https://bioconductor.org/packages/devel/bioc/html/rawrr.html) can be found through
+1. **Build the executables** using the provided scripts or Makefile.
+2. **Run the tools** from the `bin/` directory, following usage examples in the documentation.
+3. **Ensure required dependencies** (R, .NET, RawFileReader) are installed as described.
 
-https://fgcz-ms.uzh.ch/~cpanse/rawrr/
+## Package Overview
 
-## Manuscript
+rawrr provides access to proprietary Thermo Fisher Scientific Orbitrap instrument data as a stand-alone R package or as a backend for the Bioconductor [Spectra](https://bioconductor.org/packages/Spectra/) package. It wraps the functionality of the [RawFileReader](https://github.com/thermofisherlsms/RawFileReader) .NET assembly. Test files are available via the [tartare](https://bioconductor.org/packages/tartare/) ExperimentData package.
 
-http://dx.doi.org/10.1021/acs.jproteome.0c00866
+## Installation
 
-## Talks
-
-- [rawrr - invoking managed code using ThermoFisher.CommonCore.RawFileReader;](http://fgcz-ms.uzh.ch/~cpanse/talks/20211123-rawrrRcpp_MetaRbolimics2021.html) presentaton at 
-[3rd de.NBI / ELIXIR-DE metaRbolomics Hackathon 2021](https://www.denbi.de/news/1299-3rd-de-nbi-elixir-de-metarbolomics-hackathon) in Lutherstadt Wittenberg (22-24 November); [code snippets](https://github.com/cpanse/rawrrRcpp).
-
-- [MsRawFileReaderBackend](https://bioconductor.org/packages/MsBackendRawFileReader/) presentaton at
-[European Biocondutor Meeting, de Duve Institute, UCLouvain, Campus de Woluw ́e Brussels, Belgium, Dec 2019](http://fgcz-ms.uzh.ch/~cpanse/talks/rawR_EuroBioc2019_Brussels_88c9.pdf)
+To avoid package conflicts with the original `rawrr` package, please consult [this document](bin/README.md) to download the executable associated with
+this version of `rawrr`. Afterwards, please replace your existing `rawrr` executable with the downloaded package.
