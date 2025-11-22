@@ -2,3 +2,5 @@
 *.exe
 *.zip
 publish
+bin/
+obj/
