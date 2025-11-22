@@ -223,40 +223,6 @@ readFileHeader <- function(rawfile, stdout = "", stderr = ""){
   e$info
 }
 
-#' read enhanced file header Information
-#'
-#' @param rawfile the name of the raw file containing the mass spectrometry data from the Thermo Fisher Scientific instrument.
-#' @inheritParams base::system2
-#' @description This function extracts enhanced meta information from a given raw file, including detailed instrument methods.
-#' @author Tobias Kockmann and Christian Panse 2018, 2019, 2020, 2025.
-#' @references Thermo Fisher Scientific's NewRawfileReader C# code snippets
-#' \url{https://planetorbitrap.com/rawfilereader}.
-#'
-#'
-#' @return A list object containing the following entries: RAW file version,
-#' Creation date, Operator, Number of instruments, Description,
-#' Instrument model, Instrument name, Serial number, Software version,
-#' Firmware version, Units, Mass resolution, Number of scans,
-#' Number of ms2 scans, Scan range, Time range, Mass range,
-#' Scan filter (first scan), Scan filter (last scan), Total number of filters,
-#' Sample name, Sample id, Sample type, Sample comment, Sample vial,
-#' Sample volume, Sample injection volume, Sample row number,
-#' Sample dilution factor, Sample barcode, and detailed instrument methods.
-#'
-#' @export
-#'
-#' @examples
-#' rawrr::sampleFilePath() |> rawrr::readEnhancedFileHeader()
-readEnhancedFileHeader <- function(rawfile, stdout = "", stderr = ""){
-
-  .isAssemblyWorking()
-  rawfile <- normalizePath(rawfile)
-  .checkRawFile(rawfile)
-
-  .rawrrSystem2Source(rawfile, input = NULL, rawrrArgs="enhancedHeaderR",
-    stdout = stdout, stderr = stderr) -> e
-  e$info
-}
 
 #' Extract LC gradient information
 #'
