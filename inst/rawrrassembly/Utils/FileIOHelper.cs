@@ -1,3 +1,6 @@
+using System;
+using System.IO;
+using System.Collections.Generic;
 
 public static class FileIOHelper
 {
@@ -27,7 +30,7 @@ public static class FileIOHelper
         }
     }
 
-    private static void WriteUserText(StreamWriter file, string[] userText)
+    public static void WriteUserText(StreamWriter file, string[] userText)
     {
         for (int i = 0; i < Math.Min(userText.Length, 5); i++)
         {

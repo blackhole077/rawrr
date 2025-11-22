@@ -299,6 +299,7 @@ namespace FGCZExtensions
             int charge = -1;
             double precursorMass=-1;
             Dictionary<string, string> ScanTrailerDict;
+            List<string> spectrumFileContents = new List<string>();
             foreach (int scanNumber in Enumerable.Range(firstScanNumber, lastScanNumber)){
                     var scanTrailer = rawFile.GetTrailerExtraInformation(scanNumber);
                     var scanStatistics = rawFile.GetScanStatsForScanNumber(scanNumber);
@@ -324,7 +325,17 @@ namespace FGCZExtensions
                     catch {
                         charge = -1;
                     }
-                    FileIOHelper.WriteTextToFile($"e$Spectrum[[{scanNumber}]] <- list(\n\tscan = {scanNumber},\n\tscanType = \"{scanStatistics.ScanType}\",\n\tStartTime = {scanStatistics.StartTime},\n\trtinseconds = {Math.Round(scanStatistics.StartTime * 60 * 1000) / 1000},\n\tprecursorMass = {precursorMass},\n\tMSOrder = '{scanFilter.MSOrder.ToString()}',\n\tcharge = {charge}\n\t)", scanNumber);
+                    spectrumFileContents.Add($"e$Spectrum[[{scanNumber}]] <- list(");
+                    spectrumFileContents.Add($"\tscan = {scanNumber},");
+                    spectrumFileContents.Add($"\tscanType = \"{scanStatistics.ScanType}\",");
+                    spectrumFileContents.Add($"\tStartTime = {scanStatistics.StartTime},");
+                    spectrumFileContents.Add($"\trtinseconds = {Math.Round(scanStatistics.StartTime * 60 * 1000) / 1000},");
+                    spectrumFileContents.Add($"\tprecursorMass = {precursorMass},");
+                    spectrumFileContents.Add($"\tMSOrder = '{scanFilter.MSOrder.ToString()}',");
+                    spectrumFileContents.Add($"\tcharge = {charge}");
+                    spectrumFileContents.Add(")");
+
+                    FileIOHelper.WriteTextToFile(filename, string.Join("\n", spectrumFileContents));
             }
         }
 
@@ -361,10 +372,10 @@ namespace FGCZExtensions
                     charge = -1;
                 }
 
-                scanContents.Add("e$Spectrum[[{0}]] <- list(", count++);
-                scanContents.Add("\tscan = {0},", scanNumber);
-                scanContents.Add("\tStartTime = {0},", scanStatistics.StartTime);
-                scanContents.Add("\trtinseconds = {0},", Math.Round(scanStatistics.StartTime * 60 * 1000) / 1000);
+                scanContents.Add($"e$Spectrum[[{count++}]] <- list(");
+                scanContents.Add($"\tscan = {scanNumber},");
+                scanContents.Add($"\tStartTime = {scanStatistics.StartTime},");
+                scanContents.Add($"\trtinseconds = {Math.Round(scanStatistics.StartTime * 60 * 1000) / 1000},");
                 scanContents.Add($"\tcharge = {(charge > 0 ? charge.ToString() : "NA")},");
                 double precursorMass;
                 try{
@@ -459,28 +470,28 @@ namespace FGCZExtensions
                     monoIsotopicMz = -1.0;
                 }
 
-                spectrumContents.Add("e$Spectrum[[{0}]] <- list(", count++);
-                spectrumContents.Add("\tscan = {0},", scanNumber);
+                spectrumContents.Add($"e$Spectrum[[{count++}]] <- list(");
+                spectrumContents.Add($"\tscan = {scanNumber},");
 
                 try
                 {
                     basepeakMass =  (scanStatistics.BasePeakMass);
                     basepeakIntensity =  Math.Round(scanStatistics.BasePeakIntensity);
-                    spectrumContents.Add("\tbasePeak = c({0}, {1}),", basepeakMass, basepeakIntensity);
+                    spectrumContents.Add($"\tbasePeak = c({basepeakMass}, {basepeakIntensity}),");
                 }
                 catch
                 {
                     spectrumContents.Add("\tbasePeak = c(NA, NA),");
                 }
-                spectrumContents.Add("\tTIC = {0},", scanStatistics.TIC.ToString());
-                spectrumContents.Add("\tmassRange = c({0}, {1}),", scanStatistics.LowMass.ToString(), scanStatistics.HighMass.ToString());
-                spectrumContents.Add("\tscanType = \"{0}\",", scanStatistics.ScanType.ToString());
-                spectrumContents.Add("\tStartTime = {0},", scanStatistics.StartTime);
-                spectrumContents.Add("\trtinseconds = {0},", Math.Round(scanStatistics.StartTime * 60 * 1000) / 1000);
+                spectrumContents.Add($"\tTIC = {scanStatistics.TIC},");
+                spectrumContents.Add($"\tmassRange = c({scanStatistics.LowMass}, {scanStatistics.HighMass}),");
+                spectrumContents.Add($"\tscanType = \"{scanStatistics.ScanType}\",");
+                spectrumContents.Add($"\tStartTime = {scanStatistics.StartTime},");
+                spectrumContents.Add($"\trtinseconds = {Math.Round(scanStatistics.StartTime * 60 * 1000) / 1000},");
                 try
                 {
                     var reaction0 = scanEvent.GetReaction(0);
-                    spectrumContents.Add("\tpepmass = {0},", reaction0.PrecursorMass);
+                    spectrumContents.Add($"\tpepmass = {reaction0.PrecursorMass},");
                 }
                 catch
                 {
@@ -492,25 +503,22 @@ namespace FGCZExtensions
                     // Get the centroid (label) data from the RAW file for this scan
                     spectrumContents.Add("\tcentroidStream = TRUE,");
 
-                    spectrumContents.Add("\tHasCentroidStream = '{0}, Length={1}',", scan.HasCentroidStream, scan.CentroidScan.Length);
+                    spectrumContents.Add($"\tHasCentroidStream = '{scan.HasCentroidStream}, Length={scan.CentroidScan.Length}',");
                     if(scan.HasCentroidStream){
                         spectrumContents.Add("\tcentroid.mZ = c(" + string.Join(", ", scan.CentroidScan.Masses.ToArray()) + "),");
                         spectrumContents.Add("\tcentroid.intensity = c(" + string.Join(", ", scan.CentroidScan.Intensities.ToArray()) + "),");
                     }
 
-                    spectrumContents.Add("\ttitle = \"File: {0}; SpectrumID: {1}; scans: {2}\",",
-                    Path.GetFileName(rawFile.FileName),
-                    null,
-                    scanNumber);
+                    spectrumContents.Add($"\ttitle = \"File: {Path.GetFileName(rawFile.FileName)}; SpectrumID: {null}; scans: {scanNumber}\",");
 
                     if (monoIsotopicMz > 0)
-                    spectrumContents.Add("\tmonoisotopicMz = {0},", monoIsotopicMz);
+                    spectrumContents.Add($"\tmonoisotopicMz = {monoIsotopicMz},");
                     else
                     spectrumContents.Add("\tmonoisotopicMz = NA,");
 
 
                     if (charge > 0){
-                        spectrumContents.Add("\tcharge = {0},", charge);
+                        spectrumContents.Add($"\tcharge = {charge},");
                     }
                     else{
                         spectrumContents.Add("\tcharge = NA,");
@@ -529,30 +537,26 @@ namespace FGCZExtensions
                 {
                     spectrumContents.Add("\tcentroidStream = FALSE,");
 
-                    spectrumContents.Add("\tHasCentroidStream = '{0}, Length={1}',", scan.HasCentroidStream, scan.CentroidScan.Length);
+                    spectrumContents.Add($"\tHasCentroidStream = '{scan.HasCentroidStream}, Length={scan.CentroidScan.Length}',");
                     if(scan.HasCentroidStream){
                         spectrumContents.Add("\tcentroid.mZ = c(" + string.Join(",", scan.CentroidScan.Masses.ToArray()) + "),");
                         spectrumContents.Add("\tcentroid.intensity = c(" + string.Join(",", scan.CentroidScan.Intensities.ToArray()) + "),");
 
                         // https://github.com/compomics/ThermoRawFileParser/blob/c293d4aa1b04bfd62124ff42c512572427a4316a/Writer/MzMlSpectrumWriter.cs#L1664
-                        spectrumContents.Add("\tcentroid.PreferredNoises = c({0}),", string.Join(", ", scan.PreferredNoises.ToArray()));
-                        spectrumContents.Add("\tcentroid.PreferredMasses = c({0}),", string.Join(", ", scan.PreferredMasses.ToArray()));
+                        spectrumContents.Add($"\tcentroid.PreferredNoises = c({string.Join(", ", scan.PreferredNoises.ToArray())}),");
+                        spectrumContents.Add($"\tcentroid.PreferredMasses = c({string.Join(", ", scan.PreferredMasses.ToArray())}),");
                         //Console.WriteLine("\tcentroid.PreferredBaselines = c({0}),", string.Join(", ", scan.PreferredBaselines.ToArray()));
                     }
 
-                    spectrumContents.Add("\ttitle = \"File: {0}; SpectrumID: {1}; scans: {2}\",",
-                    Path.GetFileName(rawFile.FileName),
-                    null,
-                    scanNumber);
-
+                    spectrumContents.Add($"\ttitle = \"File: {Path.GetFileName(rawFile.FileName)}; SpectrumID: {null}; scans: {scanNumber}\",");
 
                     if (charge > 0)
-                    spectrumContents.Add("\tcharge = {0},", charge);
+                    spectrumContents.Add($"\tcharge = {charge},");
                     else
                     spectrumContents.Add("\tcharge = NA,");
 
                     if (monoIsotopicMz > 0)
-                    spectrumContents.Add("\tmonoisotopicMz = {0},", monoIsotopicMz);
+                    spectrumContents.Add($"\tmonoisotopicMz = {monoIsotopicMz},");
                     else
                     spectrumContents.Add("\tmonoisotopicMz = NA,");
 
