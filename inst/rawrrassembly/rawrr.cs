@@ -698,6 +698,22 @@ namespace FGCZExtensions
                 Console.Error.WriteLine($"Error extracting LC gradient: {ex.Message}");
             }
         }
+
+        public static void GetTuneLogs(this IRawDataPlus rawFile){
+            rawFile.SelectInstrument(Device.MS, 1); // Get Mass Spectrometer data
+            int tuneLogCount = rawFile.GetTuneDataCount();
+            for (int i = 0; i < tuneLogCount; i++)
+            {
+                var tuneLogHeaders = rawFile.GetTuneDataHeaderInformation();
+                var tuneLog = rawFile.GetTuneData(i);
+                int numEntries = tuneLogHeaders.Length;
+                Console.WriteLine("Tune log {0} has {1} entries.", i, numEntries);
+                for (int logCount = 0; logCount < numEntries; logCount++)
+                {
+                    Console.WriteLine("{0}: {1}", tuneLogHeaders[logCount].Label, tuneLog.Values[logCount]);
+                }
+            }
+        }
     } // end IRawDataPlusExtension class
 } // end FGCZExtensions namespace
 
@@ -1156,6 +1172,17 @@ namespace FGCZ_Raw
                     ExtractIonChromatogramAsRcode(rawFile, -1, -1, massList, ppmError, outputfile);
                 }
             });
+            // `getTuneLogs` command and arguments
+            var getTuneLogsCommand = new Command("getTuneLogs", "Retrieves the tune information from the raw file.");
+            getTuneLogsCommand.Arguments.Add(inputRawFileArg);
+            getTuneLogsCommand.SetAction((ParseResult parseResult) =>
+            {
+                string inputFile = parseResult.GetValue(inputRawFileArg);
+                using (var rawFile = FileIOHelper.CreateRawDataPlus(inputFile))
+                {
+                    rawFile.GetTuneLogs();
+                }
+            });
             // `version` option
             VersionOption versionOption = new VersionOption("--version"){
                 Description = "Prints the rawrr version."
@@ -1172,10 +1199,10 @@ namespace FGCZ_Raw
             rootCommand.Subcommands.Add(scansCommand);
             rootCommand.Subcommands.Add(bareboneCommand);
             rootCommand.Subcommands.Add(xicCommand);
+            rootCommand.Subcommands.Add(getTuneLogsCommand);
             rootCommand.Options.Add(versionOption);
             // Parse whatever command has come in and execute it.
             ParseResult parseResult = rootCommand.Parse(args);
-            Console.WriteLine(parseResult);
             parseResult.Invoke();
         }
     }
