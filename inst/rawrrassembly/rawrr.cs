@@ -25,21 +25,15 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.ExceptionServices;
 using System.Collections;
-//using System.Configuration;
-//using System.Diagnostics.Eventing;
-//using System.Data.Common;
 using System.Linq;
-//using System.Runtime.DesignerServices;
-//using System.Runtime.InteropServices.WindowsRuntime;
-//using System.Xml.Schema;
-//using System.Runtime.InteropServices;
+using System.CommandLine;
+using System.CommandLine.Parsing;
 using ThermoFisher.CommonCore.Data;
 using ThermoFisher.CommonCore.Data.Business;
 using ThermoFisher.CommonCore.Data.FilterEnums;
 using ThermoFisher.CommonCore.Data.Interfaces;
 using ThermoFisher.CommonCore.MassPrecisionEstimator;
 using ThermoFisher.CommonCore.RawFileReader;
-
 
 
 namespace FGCZExtensions
@@ -57,7 +51,7 @@ namespace FGCZExtensions
         /// <returns>a string</returns>
         public static string CleanRawfileTrailerHeader(this string s)
         {
-            return(s.Replace(" ", "")
+            return (s.Replace(" ", "")
             .Replace("#", "")
             .Replace("m/z", "mZ")
             .Replace("M/Z", "mZ")
@@ -94,34 +88,40 @@ namespace FGCZExtensions
         /// <param name="filename">The path to the output file where the R code will be written.</param>
         public static void GenerateHeaderInformationAsRCode(this IRawDataPlus rawFile, string filename)
         {
-            using (var file = new System.IO.StreamWriter(filename))
+            using (var file = FileIOHelper.CreateStreamWriter(filename))
             {
+                List<(string key, object value)> fileInfoEntries = new List<(string key, object value)>();
+                List<(string key, object value)> instrumentInfoEntries = new List<(string key, object value)>();
+                List<(string key, object value)> scanInfoEntries = new List<(string key, object value)>();
                 file.WriteLine("#R\n");
                 file.WriteLine("e$info <- list()\n");
 
+                // Need to select instrument before getting instrument data
+                rawFile.SelectInstrument(Device.MS, 1); // Get Mass Spectrometer data
                 var fileHeader = rawFile.FileHeader;
                 var instrumentData = rawFile.GetInstrumentData();
                 var runHeader = rawFile.RunHeaderEx;
                 var sampleInfo = rawFile.SampleInformation;
 
                 // File information
-                WriteInfoLine(file, "RAW file", Path.GetFileName(rawFile.FileName));
-                WriteInfoLine(file, "RAW file version", fileHeader.Revision);
-                WriteInfoLine(file, "Creation date", fileHeader.CreationDate);
-                WriteInfoLine(file, "Operator", fileHeader.WhoCreatedId);
-                WriteInfoLine(file, "Number of instruments", rawFile.InstrumentCount);
-                WriteInfoLine(file, "Description", fileHeader.FileDescription);
+
+                fileInfoEntries.Add(("RAW file", Path.GetFileName(rawFile.FileName)));
+                fileInfoEntries.Add(("RAW file version", fileHeader.Revision));
+                fileInfoEntries.Add(("Creation date", fileHeader.CreationDate));
+                fileInfoEntries.Add(("Operator", fileHeader.WhoCreatedId));
+                fileInfoEntries.Add(("Number of instruments", rawFile.InstrumentCount));
+                fileInfoEntries.Add(("Description", fileHeader.FileDescription));
 
                 // Instrument information
-                WriteInfoLine(file, "Instrument model", instrumentData.Model);
-                WriteInfoLine(file, "Instrument name", instrumentData.Name);
-                WriteInfoLine(file, "Serial number", instrumentData.SerialNumber);
-                WriteInfoLine(file, "Software version", instrumentData.SoftwareVersion);
-                WriteInfoLine(file, "Firmware version", instrumentData.HardwareVersion);
-                WriteInfoLine(file, "Units", instrumentData.Units);
-                WriteInfoLine(file, "Mass resolution", $"{runHeader.MassResolution:F3}");
+                instrumentInfoEntries.Add(("Instrument model", instrumentData.Model));
+                instrumentInfoEntries.Add(("Instrument name", instrumentData.Name));
+                instrumentInfoEntries.Add(("Serial number", instrumentData.SerialNumber));
+                instrumentInfoEntries.Add(("Software version", instrumentData.SoftwareVersion));
+                instrumentInfoEntries.Add(("Firmware version", instrumentData.HardwareVersion));
+                instrumentInfoEntries.Add(("Units", instrumentData.Units));
+                instrumentInfoEntries.Add(("Mass resolution", $"{runHeader.MassResolution:F3}"));
                 // Instrument methods
-                WriteInstrumentMethods(file, rawFile);
+                List<string> instrumentMethods = WriteInstrumentMethods(file, rawFile);
 
                 // Scan information
                 int firstScanNumber = runHeader.FirstSpectrum;
@@ -129,53 +129,46 @@ namespace FGCZExtensions
                 int ms2Count = Enumerable.Range(firstScanNumber, lastScanNumber - firstScanNumber + 1)
                 .Count(x => rawFile.GetFilterForScanNumber(x).ToString().Contains("Full ms2"));
 
-                WriteInfoLine(file, "Number of scans", runHeader.SpectraCount);
-                WriteInfoLine(file, "Number of ms2 scans", ms2Count);
-                file.WriteLine($"e$info$`Scan range` <- c({firstScanNumber}, {lastScanNumber})");
-                file.WriteLine($"e$info$`Time range` <- c({runHeader.StartTime:F2}, {runHeader.EndTime:F2})");
-                file.WriteLine($"e$info$`Mass range` <- c({runHeader.LowMass:F4}, {runHeader.HighMass:F4})");
+                scanInfoEntries.Add(("Number of scans", runHeader.SpectraCount));
+                scanInfoEntries.Add(("Number of ms2 scans", ms2Count));
+                scanInfoEntries.Add(("Scan range", $"c({firstScanNumber}, {lastScanNumber})"));
+                scanInfoEntries.Add(("Time range", $"c({runHeader.StartTime:F2}, {runHeader.EndTime:F2})"));
+                scanInfoEntries.Add(("Mass range", $"c({runHeader.LowMass:F4}, {runHeader.HighMass:F4})"));
 
                 // Filter information
                 var firstFilter = rawFile.GetFilterForScanNumber(firstScanNumber);
                 var lastFilter = rawFile.GetFilterForScanNumber(lastScanNumber);
-                WriteInfoLine(file, "Scan filter (first scan)", firstFilter.ToString());
-                WriteInfoLine(file, "Scan filter (last scan)", lastFilter.ToString());
-                WriteInfoLine(file, "Total number of filters", rawFile.GetFilters().Count);
+                scanInfoEntries.Add(("Scan filter (first scan)", firstFilter.ToString()));
+                scanInfoEntries.Add(("Scan filter (last scan)", lastFilter.ToString()));
+                scanInfoEntries.Add(("Total number of filters", rawFile.GetFilters().Count));
 
-                // Sample information
-                WriteSampleInfo(file, sampleInfo);
+                // Write out information we've gathered
+                FileIOHelper.WriteInfoLines(file, fileInfoEntries);
+                FileIOHelper.WriteInfoLines(file, instrumentInfoEntries);
+                file.WriteLine(string.Join("", instrumentMethods));
+                FileIOHelper.WriteInfoLines(file, scanInfoEntries);
+
+                FileIOHelper.WriteInfoLines(file, GenerateSampleInfo(file, sampleInfo));
 
                 // User text
-                WriteUserText(file, sampleInfo.UserText);
-
+                FileIOHelper.WriteUserText(file, sampleInfo.UserText);
             }
         }
 
-        private static void WriteInfoLine(StreamWriter file, string key, object value)
+        private static List<(string key, object value)> GenerateSampleInfo(StreamWriter file, ISampleInformation sampleInfo)
         {
-            file.WriteLine($"e$info$`{key}` <- '{value}'");
-        }
-
-        private static void WriteSampleInfo(StreamWriter file, ISampleInformation sampleInfo)
-        {
-            WriteInfoLine(file, "Sample name", sampleInfo.SampleName);
-            WriteInfoLine(file, "Sample id", sampleInfo.SampleId);
-            WriteInfoLine(file, "Sample type", sampleInfo.SampleType);
-            WriteInfoLine(file, "Sample comment", sampleInfo.Comment);
-            WriteInfoLine(file, "Sample vial", sampleInfo.Vial);
-            WriteInfoLine(file, "Sample volume", sampleInfo.SampleVolume);
-            WriteInfoLine(file, "Sample injection volume", sampleInfo.InjectionVolume);
-            WriteInfoLine(file, "Sample row number", sampleInfo.RowNumber);
-            WriteInfoLine(file, "Sample dilution factor", sampleInfo.DilutionFactor);
-            WriteInfoLine(file, "Sample barcode", sampleInfo.Barcode);
-        }
-
-        private static void WriteUserText(StreamWriter file, string[] userText)
-        {
-            for (int i = 0; i < Math.Min(userText.Length, 5); i++)
-            {
-                WriteInfoLine(file, $"User text {i}", userText[i]);
-            }
+            var entries = new List<(string key, object value)>();
+            entries.Add(("Sample name", sampleInfo.SampleName));
+            entries.Add(("Sample id", sampleInfo.SampleId));
+            entries.Add(("Sample type", sampleInfo.SampleType));
+            entries.Add(("Sample comment", sampleInfo.Comment));
+            entries.Add(("Sample vial", sampleInfo.Vial));
+            entries.Add(("Sample volume", sampleInfo.SampleVolume));
+            entries.Add(("Sample injection volume", sampleInfo.InjectionVolume));
+            entries.Add(("Sample row number", sampleInfo.RowNumber));
+            entries.Add(("Sample dilution factor", sampleInfo.DilutionFactor));
+            entries.Add(("Sample barcode", sampleInfo.Barcode));
+            return entries;
         }
 
         /// <summary>
@@ -199,107 +192,48 @@ namespace FGCZExtensions
         /// </summary>
         /// <param name="file">The StreamWriter for the output R code file.</param>
         /// <param name="rawFile">The RAW file object containing instrument method information.</param>
-        private static void WriteInstrumentMethods(StreamWriter file, IRawDataPlus rawFile)
+        private static List<string> WriteInstrumentMethods(StreamWriter file, IRawDataPlus rawFile)
         {
+            var instrumentMethods = new List<string>();
             try
             {
+                rawFile.SelectInstrument(Device.MS, 1); // Get Mass Spectrometer data
                 // Get all instrument friendly names from the instrument method
                 var instrumentFriendlyNames = rawFile.GetAllInstrumentFriendlyNamesFromInstrumentMethod();
 
                 // Get the number of instrument methods
                 int methodCount = rawFile.InstrumentMethodsCount;
 
-                file.WriteLine($"e$info$`Number of instrument methods` <- {methodCount}");
-                file.WriteLine("e$info$`Instrument methods` <- list()");
+                instrumentMethods.Add($"e$info$`Number of instrument methods` <- {methodCount}\n");
+                instrumentMethods.Add("e$info$`Instrument methods` <- list()\n");
 
                 for (int i = 0; i < methodCount; i++)
                 {
                     // Use friendly name if available, otherwise fall back to index-based name
                     string instrumentName = i < instrumentFriendlyNames.Count()
-                    ? instrumentFriendlyNames[i]
-                    : $"Instrument_{i}";
+                        ? instrumentFriendlyNames[i]
+                        : $"Instrument_{i}";
 
                     string methodContent = rawFile.GetInstrumentMethod(i)
-                    .Replace("\\", "/")
-                    .Replace("\n", "\\n")
-                    .Replace("\r", "")
-                    .Replace("'", "\\'");
+                        .Replace("\\", "/")
+                        .Replace("\n", "\\n")
+                        .Replace("\r", "")
+                        .Replace("'", "\\'");
 
-                    file.WriteLine($"e$info$`Instrument methods`[[{i + 1}]] <- list(");
-                    file.WriteLine($"\tname = '{instrumentName}',");
-                    file.WriteLine($"\tmethod = '{methodContent}'");
-                    file.WriteLine(")");
+                    instrumentMethods.Add($"e$info$`Instrument methods`[[{i + 1}]] <- list(\n\tname = '{instrumentName}',\n\tmethod = '{methodContent}'\n)\n");
                 }
             }
             catch (Exception ex)
             {
                 // If method extraction fails, log it but don't crash
-                file.WriteLine($"# Warning: Could not extract instrument methods: {ex.Message}");
+                instrumentMethods.Add($"# Warning: Could not extract instrument methods: {ex.Message}\n");
             }
+            return instrumentMethods;
         }
-        /// <summary>
-        /// write file header (metainfo) into R code
-        /// </summary>
-        public static void PrintHeaderAsRcode(this IRawDataPlus rawFile, string filename)
+
+        public static void GetIndex(this IRawDataPlus rawFile)
         {
-            using (System.IO.StreamWriter file =
-            new System.IO.StreamWriter(filename))
-            {
-                file.WriteLine("#R\n\n");
-                file.WriteLine("e$info <- list()\n");
-                file.WriteLine("e$info$`RAW file` <- '" + Path.GetFileName(rawFile.FileName) + "'");
-                file.WriteLine("e$info$`RAW file version` <- '" + rawFile.FileHeader.Revision + "'");
-                file.WriteLine("e$info$`Creation date` <- '" + rawFile.FileHeader.CreationDate + "'");
-                file.WriteLine("e$info$Operator <- '" + rawFile.FileHeader.WhoCreatedId + "'");
-                file.WriteLine("e$info$`Number of instruments` <- {0}", rawFile.InstrumentCount);
-                file.WriteLine("e$info$Description <- '" + rawFile.FileHeader.FileDescription + "'");
-                file.WriteLine("e$info$`Instrument model` <- '{0}'", rawFile.GetInstrumentData().Model);
-                file.WriteLine("e$info$`Instrument name` <- '{0}'", rawFile.GetInstrumentData().Name);
-                file.WriteLine("e$info$`Instrument method` <- '" + rawFile.SampleInformation.InstrumentMethodFile.Replace("\\", "/") + "'");
-                //file.WriteLine("e$info$`Instrument method` <- '{0}'", rawFile.GetAllInstrumentFriendlyNamesFromInstrumentMethod().Length);
-                file.WriteLine("e$info$`Serial number` <- '{0}'", rawFile.GetInstrumentData().SerialNumber);
-                file.WriteLine("e$info$`Software version` <- '{0}'", rawFile.GetInstrumentData().SoftwareVersion);
-                file.WriteLine("e$info$`Firmware version` <- '{0}'", rawFile.GetInstrumentData().HardwareVersion);
-                file.WriteLine("e$info$Units <- '{0}'", rawFile.GetInstrumentData().Units);
-                file.WriteLine("e$info$`Mass resolution` <- '{0:F3}'", rawFile.RunHeaderEx.MassResolution);
-                file.WriteLine("e$info$`Number of scans` <- {0}", rawFile.RunHeaderEx.SpectraCount);
-                int firstScanNumber = rawFile.RunHeaderEx.FirstSpectrum;
-                int lastScanNumber = rawFile.RunHeaderEx.LastSpectrum;
-                file.WriteLine("e$info$`Number of ms2 scans` <- {0}", Enumerable.Range(1, lastScanNumber - firstScanNumber).Count(x => rawFile.GetFilterForScanNumber(x).ToString().Contains("Full ms2")));
-                file.WriteLine("e$info$`Scan range` <- c({0}, {1})", firstScanNumber, lastScanNumber);
-                double startTime = rawFile.RunHeaderEx.StartTime;
-                double endTime = rawFile.RunHeaderEx.EndTime;
-                file.WriteLine("e$info$`Time range` <- c({0:F2}, {1:F2})", startTime, endTime);
-                file.WriteLine("e$info$`Mass range` <- c({0:F4}, {1:F4})", rawFile.RunHeaderEx.LowMass, rawFile.RunHeaderEx.HighMass);
-
-                var firstFilter = rawFile.GetFilterForScanNumber(firstScanNumber);
-                var lastFilter = rawFile.GetFilterForScanNumber(lastScanNumber);
-                int numberFilters = rawFile.GetFilters().Count;
-                file.WriteLine("e$info$`Scan filter (first scan)` <- '{0}'", firstFilter.ToString());
-                file.WriteLine("e$info$`Scan filter (last scan)` <- '{0}'", lastFilter.ToString());
-                file.WriteLine("e$info$`Total number of filters` <- '{0}'", numberFilters);
-
-                file.WriteLine("e$info$`Sample name` <- '{0}' ", rawFile.SampleInformation.SampleName);
-                file.WriteLine("e$info$`Sample id` <- '{0}' ", rawFile.SampleInformation.SampleId);
-                file.WriteLine("e$info$`Sample type` <- '{0}' ", rawFile.SampleInformation.SampleType);
-                file.WriteLine("e$info$`Sample comment` <- '{0}' ", rawFile.SampleInformation.Comment);
-                file.WriteLine("e$info$`Sample vial` <- '{0}' ", rawFile.SampleInformation.Vial);
-                file.WriteLine("e$info$`Sample volume` <- '{0}' ", rawFile.SampleInformation.SampleVolume);
-                file.WriteLine("e$info$`Sample injection volume` <- '{0}' ", rawFile.SampleInformation.InjectionVolume);
-                file.WriteLine("e$info$`Sample row number` <- '{0}' ", rawFile.SampleInformation.RowNumber);
-                file.WriteLine("e$info$`Sample dilution factor` <- '{0}' ", rawFile.SampleInformation.DilutionFactor);
-                file.WriteLine("e$info$`Sample barcode` <- '{0}' ", rawFile.SampleInformation.Barcode);
-
-                file.WriteLine("e$info$`User text 0` <- '{0}' ", rawFile.SampleInformation.UserText[0]);
-                file.WriteLine("e$info$`User text 1` <- '{0}' ", rawFile.SampleInformation.UserText[1]);
-                file.WriteLine("e$info$`User text 2` <- '{0}' ", rawFile.SampleInformation.UserText[2]);
-                file.WriteLine("e$info$`User text 3` <- '{0}' ", rawFile.SampleInformation.UserText[3]);
-                file.WriteLine("e$info$`User text 4` <- '{0}' ", rawFile.SampleInformation.UserText[4]);
-            }
-        }
-
-
-        public static void GetIndex(this IRawDataPlus rawFile){
+            rawFile.SelectInstrument(Device.MS, 1); // Get Mass Spectrometer data
             int firstScanNumber = rawFile.RunHeaderEx.FirstSpectrum;
             int lastScanNumber = rawFile.RunHeaderEx.LastSpectrum;
 
@@ -311,7 +245,8 @@ namespace FGCZExtensions
 
             Dictionary<string, string> ScanTrailerDict;
 
-            foreach (int scanNumber in Enumerable.Range(firstScanNumber, lastScanNumber)){
+            foreach (int scanNumber in Enumerable.Range(firstScanNumber, lastScanNumber))
+            {
                 var scanTrailer = rawFile.GetTrailerExtraInformation(scanNumber);
                 var scanStatistics = rawFile.GetScanStatsForScanNumber(scanNumber);
                 var scanEvent = rawFile.GetScanEventForScanNumber(scanNumber);
@@ -322,34 +257,49 @@ namespace FGCZExtensions
                 foreach (var (key, value) in Enumerable.Range(0, scanTrailer.Length).Select(i => (scanTrailer.Labels[i], scanTrailer.Values[i])))
                 { ScanTrailerDict[key] = value.Trim(); }
 
-                try{
+                try
+                {
                     var reaction0 = scanEvent.GetReaction(0);
-                    precursorMass =  reaction0.PrecursorMass;
-                } catch{
+                    precursorMass = reaction0.PrecursorMass;
+                }
+                catch
+                {
                     precursorMass = -1;
                 }
 
-                try{
+                try
+                {
                     charge = int.Parse(ScanTrailerDict["Charge State:"]);
-                } catch {
+                }
+                catch
+                {
                     charge = -1;
                 }
 
-                try{
+                try
+                {
                     masterScan = int.Parse(ScanTrailerDict["Master Scan Number:"]);
-                } catch {
-                    masterScan= -1;
+                }
+                catch
+                {
+                    masterScan = -1;
                 }
 
-                try{
+                try
+                {
                     dependencyType = int.Parse(ScanTrailerDict["Dependency Type:"]);
-                } catch {
+                }
+                catch
+                {
                     dependencyType = -1;
                 }
 
-                try{
+                try
+                {
                     monoIsotopicMz = Convert.ToDouble(ScanTrailerDict["Monoisotopic M/Z:"]);
-                } catch {
+                }
+                catch
+                {
                     monoIsotopicMz = -1.0;
                 }
 
@@ -367,51 +317,54 @@ namespace FGCZExtensions
 
         public static void WriteSpectrumAsRcode0(this IRawDataPlus rawFile, string filename)
         {
+            rawFile.SelectInstrument(Device.MS, 1); // Get Mass Spectrometer data
             int firstScanNumber = rawFile.RunHeaderEx.FirstSpectrum;
             int lastScanNumber = rawFile.RunHeaderEx.LastSpectrum;
             int charge = -1;
-            double precursorMass=-1;
+            double precursorMass = -1;
             Dictionary<string, string> ScanTrailerDict;
-
-            using (System.IO.StreamWriter file =
-            new System.IO.StreamWriter(filename))
+            List<string> spectrumFileContents = new List<string>();
+            foreach (int scanNumber in Enumerable.Range(firstScanNumber, lastScanNumber))
             {
-                foreach (int scanNumber in Enumerable.Range(firstScanNumber, lastScanNumber)){
-                    var scanTrailer = rawFile.GetTrailerExtraInformation(scanNumber);
-                    var scanStatistics = rawFile.GetScanStatsForScanNumber(scanNumber);
-                    var scanEvent = rawFile.GetScanEventForScanNumber(scanNumber);
-                    var scanFilter = rawFile.GetFilterForScanNumber(scanNumber);
+                var scanTrailer = rawFile.GetTrailerExtraInformation(scanNumber);
+                var scanStatistics = rawFile.GetScanStatsForScanNumber(scanNumber);
+                var scanEvent = rawFile.GetScanEventForScanNumber(scanNumber);
+                var scanFilter = rawFile.GetFilterForScanNumber(scanNumber);
 
-                    ScanTrailerDict = new Dictionary<string, string>();
-                    foreach (var (key, value) in Enumerable.Range(0, scanTrailer.Length).Select(i => (scanTrailer.Labels[i], scanTrailer.Values[i])))
-                    { ScanTrailerDict[key] = value.Trim(); }
+                ScanTrailerDict = new Dictionary<string, string>();
+                foreach (var (key, value) in Enumerable.Range(0, scanTrailer.Length).Select(i => (scanTrailer.Labels[i], scanTrailer.Values[i])))
+                { ScanTrailerDict[key] = value.Trim(); }
 
 
-                    try{
-                        var reaction0 = scanEvent.GetReaction(0);
-                        precursorMass =  reaction0.PrecursorMass;
-                    }
-                    catch{
-                        precursorMass = -1;
-                    }
-
-                    try{
-                        charge = int.Parse(ScanTrailerDict["Charge State:"]);
-                    }
-                    catch {
-                        charge = -1;
-                    }
-
-                    file.WriteLine("e$Spectrum[[{0}]] <- list(", scanNumber);
-                    file.WriteLine("\tscan = {0};", scanNumber);
-                    file.WriteLine("\tscanType = \"{0}\";", scanStatistics.ScanType.ToString());
-                    file.WriteLine("\tStartTime = {0},", scanStatistics.StartTime);
-                    file.WriteLine("\trtinseconds = {0};", Math.Round(scanStatistics.StartTime * 60 * 1000) / 1000);
-                    file.WriteLine("\tprecursorMass = {0};", precursorMass);
-                    file.WriteLine("\tMSOrder = '{0}';", scanFilter.MSOrder.ToString());
-                    file.WriteLine("\tcharge = {0}", charge);
-                    file.WriteLine(")");
+                try
+                {
+                    var reaction0 = scanEvent.GetReaction(0);
+                    precursorMass = reaction0.PrecursorMass;
                 }
+                catch
+                {
+                    precursorMass = -1;
+                }
+
+                try
+                {
+                    charge = int.Parse(ScanTrailerDict["Charge State:"]);
+                }
+                catch
+                {
+                    charge = -1;
+                }
+                spectrumFileContents.Add($"e$Spectrum[[{scanNumber}]] <- list(");
+                spectrumFileContents.Add($"\tscan = {scanNumber},");
+                spectrumFileContents.Add($"\tscanType = \"{scanStatistics.ScanType}\",");
+                spectrumFileContents.Add($"\tStartTime = {scanStatistics.StartTime},");
+                spectrumFileContents.Add($"\trtinseconds = {Math.Round(scanStatistics.StartTime * 60 * 1000) / 1000},");
+                spectrumFileContents.Add($"\tprecursorMass = {precursorMass},");
+                spectrumFileContents.Add($"\tMSOrder = '{scanFilter.MSOrder.ToString()}',");
+                spectrumFileContents.Add($"\tcharge = {charge}");
+                spectrumFileContents.Add(")");
+
+                FileIOHelper.WriteTextToFile(filename, string.Join("\n", spectrumFileContents));
             }
         }
 
@@ -426,65 +379,60 @@ namespace FGCZExtensions
         /// <param name="L"></param>
         public static void WriteCentroidSpectrumAsRcode(this IRawDataPlus rawFile, string filename, List<int> L)
         {
+            rawFile.SelectInstrument(Device.MS, 1); // Get Mass Spectrometer data
             int count = 1;
             int charge = -1;
             Dictionary<string, string> ScanTrailerDict;
             var trailerFields = rawFile.GetTrailerExtraHeaderInformation();
-
-            using (System.IO.StreamWriter file =
-            new System.IO.StreamWriter(filename))
+            var scanContents = new List<string>();
+            foreach (int scanNumber in L)
             {
-                foreach (int scanNumber in L)
+                var scan = Scan.FromFile(rawFile, scanNumber);
+                var scanStatistics = rawFile.GetScanStatsForScanNumber(scanNumber);
+                var centroidStream = rawFile.GetCentroidStream(scanNumber, false);
+                var scanEvent = rawFile.GetScanEventForScanNumber(scanNumber);
+                var scanTrailer = rawFile.GetTrailerExtraInformation(scanNumber);
+
+                ScanTrailerDict = new Dictionary<string, string>();
+                foreach (var (key, value) in Enumerable.Range(0, scanTrailer.Length).Select(i => (scanTrailer.Labels[i], scanTrailer.Values[i])))
+                { ScanTrailerDict[key] = value.Trim(); }
+
+                if (!int.TryParse(ScanTrailerDict.GetValueOrDefault("Charge State:", "-1"), out charge))
                 {
-                    var scan = Scan.FromFile(rawFile, scanNumber);
-                    var scanStatistics = rawFile.GetScanStatsForScanNumber(scanNumber);
-                    var centroidStream = rawFile.GetCentroidStream(scanNumber, false);
-                    var scanEvent = rawFile.GetScanEventForScanNumber(scanNumber);
-                    var scanTrailer = rawFile.GetTrailerExtraInformation(scanNumber);
-
-                    ScanTrailerDict = new Dictionary<string, string>();
-                    foreach (var (key, value) in Enumerable.Range(0, scanTrailer.Length).Select(i => (scanTrailer.Labels[i], scanTrailer.Values[i])))
-                    { ScanTrailerDict[key] = value.Trim(); }
-
-                    try{
-                        charge = int.Parse(ScanTrailerDict["Charge State:"]);
-                    }
-                    catch {
-                        charge = -1;
-                    }
-
-
-                    file.WriteLine("e$Spectrum[[{0}]] <- list(", count++);
-                    file.WriteLine("\tscan = {0},", scanNumber);
-                    file.WriteLine("\tStartTime = {0},", scanStatistics.StartTime);
-                    file.WriteLine("\trtinseconds = {0},", Math.Round(scanStatistics.StartTime * 60 * 1000) / 1000);
-                    if (charge > 0)
-                    file.WriteLine("\tcharge = {0},", charge);
-                    else
-                    file.WriteLine("\tcharge = NA,");
-
-                    try{
-                        var reaction0 = scanEvent.GetReaction(0);
-                        file.WriteLine("\tpepmass = {0},", reaction0.PrecursorMass);
-                    }catch{
-                        file.WriteLine("\tpepmass = NA,");
-                    }
-
-                    if (scanStatistics.IsCentroidScan && centroidStream.Length > 0)
-                    {
-                        file.WriteLine("\tmZ = c(" + string.Join(", ", centroidStream.Masses) + "),");
-                        file.WriteLine("\tintensity = c(" + string.Join(", ", centroidStream.Intensities) + ")");
-                    } else{
-                        file.WriteLine("\tmZ = NULL,\n\tintensity = NULL");
-                    }
-                    file.WriteLine("\t)");
+                    charge = -1;
                 }
+
+                scanContents.Add($"e$Spectrum[[{count++}]] <- list(");
+                scanContents.Add($"\tscan = {scanNumber},");
+                scanContents.Add($"\tStartTime = {scanStatistics.StartTime},");
+                scanContents.Add($"\trtinseconds = {Math.Round(scanStatistics.StartTime * 60 * 1000) / 1000},");
+                scanContents.Add($"\tcharge = {(charge > 0 ? charge.ToString() : "NA")},");
+                double precursorMass;
+                try
+                {
+                    var reaction0 = scanEvent.GetReaction(0);
+                    precursorMass = reaction0.PrecursorMass;
+                }
+                catch
+                {
+                    precursorMass = -1;
+                }
+                scanContents.Add($"\tpepmass = {(precursorMass > 0 ? precursorMass.ToString() : "NA")},");
+
+                string mzData = scanStatistics.IsCentroidScan && centroidStream.Length > 0
+                    ? $"\tmZ = c({string.Join(", ", centroidStream.Masses)}),\n\tintensity = c({string.Join(", ", centroidStream.Intensities)})"
+                    : "\tmZ = NULL,\n\tintensity = NULL";
+                scanContents.Add(mzData);
+                scanContents.Add("\t)");
+                FileIOHelper.WriteTextToFile(filename, string.Join("\n", scanContents));
+                scanContents.Clear(); // Clear contents out for next loop
             }
         }
 
 
         public static void WriteTrailerLabel(this IRawDataPlus rawFile)
         {
+            rawFile.SelectInstrument(Device.MS, 1); // Get Mass Spectrometer data
             foreach (int scanNumber in Enumerable.Range(rawFile.RunHeaderEx.FirstSpectrum, rawFile.RunHeaderEx.LastSpectrum))
             {
                 var scanTrailer = rawFile.GetTrailerExtraInformation(scanNumber);
@@ -495,6 +443,7 @@ namespace FGCZExtensions
 
         public static void WriteTrailerValues(this IRawDataPlus rawFile, string label)
         {
+            rawFile.SelectInstrument(Device.MS, 1); // Get Mass Spectrometer data
             Dictionary<string, string> ScanTrailerDict;
             foreach (int scanNumber in Enumerable.Range(rawFile.RunHeaderEx.FirstSpectrum, rawFile.RunHeaderEx.LastSpectrum))
             {
@@ -505,9 +454,12 @@ namespace FGCZExtensions
                 foreach (var (key, value) in Enumerable.Range(0, scanTrailer.Length).Select(i => (scanTrailer.Labels[i], scanTrailer.Values[i])))
                 { ScanTrailerDict[key] = value.Trim(); }
 
-                if (ScanTrailerDict.ContainsKey(label)){
+                if (ScanTrailerDict.ContainsKey(label))
+                {
                     Console.WriteLine(ScanTrailerDict[label]);
-                }else{
+                }
+                else
+                {
                     Console.WriteLine("NA");
                 }
             }
@@ -520,155 +472,157 @@ namespace FGCZExtensions
         /// <param name="L"></param>
         public static void WriteSpectrumAsRcode(this IRawDataPlus rawFile, string filename, List<int> L)
         {
+            rawFile.SelectInstrument(Device.MS, 1); // Get Mass Spectrometer data
             int count = 1;
             int charge = -1;
             double monoIsotopicMz = -1;
             var trailerFields = rawFile.GetTrailerExtraHeaderInformation();
             Dictionary<string, string> ScanTrailerDict;
 
-            using (System.IO.StreamWriter file =
-            new System.IO.StreamWriter(filename))
+            foreach (int scanNumber in L)
             {
+                var basepeakMass = -1.0;
+                var basepeakIntensity = -1.0;
 
-                foreach (int scanNumber in L)
+                var scanStatistics = rawFile.GetScanStatsForScanNumber(scanNumber);
+                var centroidStream = rawFile.GetCentroidStream(scanNumber, false);
+                var scanTrailer = rawFile.GetTrailerExtraInformation(scanNumber);
+                var scanEvent = rawFile.GetScanEventForScanNumber(scanNumber);
+
+                var scan = Scan.FromFile(rawFile, scanNumber);
+
+
+                ScanTrailerDict = new Dictionary<string, string>();
+                var spectrumContents = new List<string>();
+                foreach (var (key, value) in Enumerable.Range(0, scanTrailer.Length).Select(i => (scanTrailer.Labels[i], scanTrailer.Values[i])))
+                { ScanTrailerDict[key] = value.Trim(); }
+
+                try
                 {
-                    var basepeakMass = -1.0;
-                    var basepeakIntensity = -1.0;
+                    charge = int.Parse(ScanTrailerDict["Charge State:"]);
+                }
+                catch
+                {
+                    charge = -1;
+                }
 
-                    var scanStatistics = rawFile.GetScanStatsForScanNumber(scanNumber);
-                    var centroidStream = rawFile.GetCentroidStream(scanNumber, false);
-                    var scanTrailer = rawFile.GetTrailerExtraInformation(scanNumber);
-                    var scanEvent = rawFile.GetScanEventForScanNumber(scanNumber);
+                try
+                {
+                    monoIsotopicMz = Convert.ToDouble(ScanTrailerDict["Monoisotopic M/Z:"]);
+                }
+                catch
+                {
+                    monoIsotopicMz = -1.0;
+                }
 
-                    var scan = Scan.FromFile(rawFile, scanNumber);
+                spectrumContents.Add($"e$Spectrum[[{count++}]] <- list(");
+                spectrumContents.Add($"\tscan = {scanNumber},");
 
+                try
+                {
+                    basepeakMass = (scanStatistics.BasePeakMass);
+                    basepeakIntensity = Math.Round(scanStatistics.BasePeakIntensity);
+                    spectrumContents.Add($"\tbasePeak = c({basepeakMass}, {basepeakIntensity}),");
+                }
+                catch
+                {
+                    spectrumContents.Add("\tbasePeak = c(NA, NA),");
+                }
+                spectrumContents.Add($"\tTIC = {scanStatistics.TIC},");
+                spectrumContents.Add($"\tmassRange = c({scanStatistics.LowMass}, {scanStatistics.HighMass}),");
+                spectrumContents.Add($"\tscanType = \"{scanStatistics.ScanType}\",");
+                spectrumContents.Add($"\tStartTime = {scanStatistics.StartTime},");
+                spectrumContents.Add($"\trtinseconds = {Math.Round(scanStatistics.StartTime * 60 * 1000) / 1000},");
+                try
+                {
+                    var reaction0 = scanEvent.GetReaction(0);
+                    spectrumContents.Add($"\tpepmass = {reaction0.PrecursorMass},");
+                }
+                catch
+                {
+                    spectrumContents.Add("\tpepmass = NA,");
+                }
 
-                    ScanTrailerDict = new Dictionary<string, string>();
-                    foreach (var (key, value) in Enumerable.Range(0, scanTrailer.Length).Select(i => (scanTrailer.Labels[i], scanTrailer.Values[i])))
-                    { ScanTrailerDict[key] = value.Trim(); }
+                if (scanStatistics.IsCentroidScan && centroidStream.Length > 0)
+                {
+                    // Get the centroid (label) data from the RAW file for this scan
+                    spectrumContents.Add("\tcentroidStream = TRUE,");
 
-                    try{
-                        charge = int.Parse(ScanTrailerDict["Charge State:"]);
-                    } catch {
-                        charge = -1;
-                    }
-
-                    try{
-                        monoIsotopicMz = Convert.ToDouble(ScanTrailerDict["Monoisotopic M/Z:"]);
-                    } catch {
-                        monoIsotopicMz = -1.0;
-                    }
-
-                    file.WriteLine("e$Spectrum[[{0}]] <- list(", count++);
-                    file.WriteLine("\tscan = {0},", scanNumber);
-
-                    try
+                    spectrumContents.Add($"\tHasCentroidStream = '{scan.HasCentroidStream}, Length={scan.CentroidScan.Length}',");
+                    if (scan.HasCentroidStream)
                     {
-                        basepeakMass =  (scanStatistics.BasePeakMass);
-                        basepeakIntensity =  Math.Round(scanStatistics.BasePeakIntensity);
-                        file.WriteLine("\tbasePeak = c({0}, {1}),", basepeakMass, basepeakIntensity);
-                    }
-                    catch
-                    {
-                        file.WriteLine("\tbasePeak = c(NA, NA),");
-                    }
-                    file.WriteLine("\tTIC = {0},", scanStatistics.TIC.ToString());
-                    file.WriteLine("\tmassRange = c({0}, {1}),", scanStatistics.LowMass.ToString(), scanStatistics.HighMass.ToString());
-                    file.WriteLine("\tscanType = \"{0}\",", scanStatistics.ScanType.ToString());
-                    file.WriteLine("\tStartTime = {0},", scanStatistics.StartTime);
-                    file.WriteLine("\trtinseconds = {0},", Math.Round(scanStatistics.StartTime * 60 * 1000) / 1000);
-                    try
-                    {
-                        var reaction0 = scanEvent.GetReaction(0);
-                        file.WriteLine("\tpepmass = {0},", reaction0.PrecursorMass);
-                    }
-                    catch
-                    {
-                        file.WriteLine("\tpepmass = NA,");
+                        spectrumContents.Add("\tcentroid.mZ = c(" + string.Join(", ", scan.CentroidScan.Masses.ToArray()) + "),");
+                        spectrumContents.Add("\tcentroid.intensity = c(" + string.Join(", ", scan.CentroidScan.Intensities.ToArray()) + "),");
                     }
 
-                    if (scanStatistics.IsCentroidScan && centroidStream.Length > 0)
+                    spectrumContents.Add($"\ttitle = \"File: {Path.GetFileName(rawFile.FileName)}; SpectrumID: {null}; scans: {scanNumber}\",");
+
+                    if (monoIsotopicMz > 0)
+                        spectrumContents.Add($"\tmonoisotopicMz = {monoIsotopicMz},");
+                    else
+                        spectrumContents.Add("\tmonoisotopicMz = NA,");
+
+
+                    if (charge > 0)
                     {
-                        // Get the centroid (label) data from the RAW file for this scan
-                        file.WriteLine("\tcentroidStream = TRUE,");
-
-                        file.WriteLine("\tHasCentroidStream = '{0}, Length={1}',", scan.HasCentroidStream, scan.CentroidScan.Length);
-                        if(scan.HasCentroidStream){
-                            file.WriteLine("\tcentroid.mZ = c(" + string.Join(", ", scan.CentroidScan.Masses.ToArray()) + "),");
-                            file.WriteLine("\tcentroid.intensity = c(" + string.Join(", ", scan.CentroidScan.Intensities.ToArray()) + "),");
-                        }
-
-                        file.WriteLine("\ttitle = \"File: {0}; SpectrumID: {1}; scans: {2}\",",
-                        Path.GetFileName(rawFile.FileName),
-                        null,
-                        scanNumber);
-
-                        if (monoIsotopicMz > 0)
-                        file.WriteLine("\tmonoisotopicMz = {0},", monoIsotopicMz);
-                        else
-                        file.WriteLine("\tmonoisotopicMz = NA,");
-
-
-                        if (charge > 0){
-                            file.WriteLine("\tcharge = {0},", charge);
-                        }
-                        else{
-                            file.WriteLine("\tcharge = NA,");
-                        }
-
-
-                        file.WriteLine("\tmZ = c(" + string.Join(", ", centroidStream.Masses) + "),");
-                        file.WriteLine("\tintensity = c(" + string.Join(", ", centroidStream.Intensities) + "),");
-                        file.WriteLine("\tnoises = c(" + string.Join(", ", centroidStream.Noises) + "),");
-                        file.WriteLine("\tresolutions = c(" + string.Join(", ", centroidStream.Resolutions.ToArray()) + "),");
-                        file.WriteLine("\tcharges = c(" + string.Join(", ", centroidStream.Charges) + "),");
-                        file.WriteLine("\tbaselines = c(" + string.Join(", ", centroidStream.Baselines) + "),");
-
+                        spectrumContents.Add($"\tcharge = {charge},");
                     }
                     else
                     {
-                        file.WriteLine("\tcentroidStream = FALSE,");
-
-                        file.WriteLine("\tHasCentroidStream = '{0}, Length={1}',", scan.HasCentroidStream, scan.CentroidScan.Length);
-                        if(scan.HasCentroidStream){
-                            file.WriteLine("\tcentroid.mZ = c(" + string.Join(",", scan.CentroidScan.Masses.ToArray()) + "),");
-                            file.WriteLine("\tcentroid.intensity = c(" + string.Join(",", scan.CentroidScan.Intensities.ToArray()) + "),");
-
-                            // https://github.com/compomics/ThermoRawFileParser/blob/c293d4aa1b04bfd62124ff42c512572427a4316a/Writer/MzMlSpectrumWriter.cs#L1664
-                            file.WriteLine("\tcentroid.PreferredNoises = c({0}),", string.Join(", ", scan.PreferredNoises.ToArray()));
-                            file.WriteLine("\tcentroid.PreferredMasses = c({0}),", string.Join(", ", scan.PreferredMasses.ToArray()));
-                            //Console.WriteLine("\tcentroid.PreferredBaselines = c({0}),", string.Join(", ", scan.PreferredBaselines.ToArray()));
-                        }
-
-                        file.WriteLine("\ttitle = \"File: {0}; SpectrumID: {1}; scans: {2}\",",
-                        Path.GetFileName(rawFile.FileName),
-                        null,
-                        scanNumber);
-
-
-                        if (charge > 0)
-                        file.WriteLine("\tcharge = {0},", charge);
-                        else
-                        file.WriteLine("\tcharge = NA,");
-
-                        if (monoIsotopicMz > 0)
-                        file.WriteLine("\tmonoisotopicMz = {0},", monoIsotopicMz);
-                        else
-                        file.WriteLine("\tmonoisotopicMz = NA,");
-
-                        file.WriteLine("\tmZ = c(" + string.Join(",", scan.SegmentedScan.Positions) + "),");
-                        file.WriteLine("\tintensity = c(" + string.Join(",", scan.SegmentedScan.Intensities) + "),");
-                        // file.WriteLine("\tnoises = c(" + string.Join(",", scan.SegmentedScan.Noises) + "),");
+                        spectrumContents.Add("\tcharge = NA,");
                     }
-                    // ============= Instrument Data =============
-                    // write scan Trailer
-                    var trailerValues = scanTrailer.Values;
-                    var trailerLabels = scanTrailer.Labels;
-                    var zipTrailer = trailerLabels.ToArray().Zip(trailerValues, (a, b) => string.Format("\t\"{0}\" = \"{1}\"", a, b));
-                    file.WriteLine(string.Join(", \n", zipTrailer));
-                    file.WriteLine(")");
+
+
+                    spectrumContents.Add("\tmZ = c(" + string.Join(", ", centroidStream.Masses) + "),");
+                    spectrumContents.Add("\tintensity = c(" + string.Join(", ", centroidStream.Intensities) + "),");
+                    spectrumContents.Add("\tnoises = c(" + string.Join(", ", centroidStream.Noises) + "),");
+                    spectrumContents.Add("\tresolutions = c(" + string.Join(", ", centroidStream.Resolutions.ToArray()) + "),");
+                    spectrumContents.Add("\tcharges = c(" + string.Join(", ", centroidStream.Charges) + "),");
+                    spectrumContents.Add("\tbaselines = c(" + string.Join(", ", centroidStream.Baselines) + "),");
+
                 }
+                else
+                {
+                    spectrumContents.Add("\tcentroidStream = FALSE,");
+
+                    spectrumContents.Add($"\tHasCentroidStream = '{scan.HasCentroidStream}, Length={scan.CentroidScan.Length}',");
+                    if (scan.HasCentroidStream)
+                    {
+                        spectrumContents.Add("\tcentroid.mZ = c(" + string.Join(",", scan.CentroidScan.Masses.ToArray()) + "),");
+                        spectrumContents.Add("\tcentroid.intensity = c(" + string.Join(",", scan.CentroidScan.Intensities.ToArray()) + "),");
+
+                        // https://github.com/compomics/ThermoRawFileParser/blob/c293d4aa1b04bfd62124ff42c512572427a4316a/Writer/MzMlSpectrumWriter.cs#L1664
+                        spectrumContents.Add($"\tcentroid.PreferredNoises = c({string.Join(", ", scan.PreferredNoises.ToArray())}),");
+                        spectrumContents.Add($"\tcentroid.PreferredMasses = c({string.Join(", ", scan.PreferredMasses.ToArray())}),");
+                        //Console.WriteLine("\tcentroid.PreferredBaselines = c({0}),", string.Join(", ", scan.PreferredBaselines.ToArray()));
+                    }
+
+                    spectrumContents.Add($"\ttitle = \"File: {Path.GetFileName(rawFile.FileName)}; SpectrumID: {null}; scans: {scanNumber}\",");
+
+                    if (charge > 0)
+                        spectrumContents.Add($"\tcharge = {charge},");
+                    else
+                        spectrumContents.Add("\tcharge = NA,");
+
+                    if (monoIsotopicMz > 0)
+                        spectrumContents.Add($"\tmonoisotopicMz = {monoIsotopicMz},");
+                    else
+                        spectrumContents.Add("\tmonoisotopicMz = NA,");
+
+                    spectrumContents.Add("\tmZ = c(" + string.Join(",", scan.SegmentedScan.Positions) + "),");
+                    spectrumContents.Add("\tintensity = c(" + string.Join(",", scan.SegmentedScan.Intensities) + "),");
+                    // spectrumContents.Add("\tnoises = c(" + string.Join(",", scan.SegmentedScan.Noises) + "),");
+                }
+                // ============= Instrument Data =============
+                // write scan Trailer
+                var trailerValues = scanTrailer.Values;
+                var trailerLabels = scanTrailer.Labels;
+                var zipTrailer = trailerLabels.ToArray().Zip(trailerValues, (a, b) => string.Format("\t\"{0}\" = \"{1}\"", a, b));
+                spectrumContents.Add(string.Join(", \n", zipTrailer));
+                spectrumContents.Add(")");
+                FileIOHelper.WriteTextToFile(filename, string.Join("\n", spectrumContents));
             }
+
 
             return;
         }
@@ -679,65 +633,65 @@ namespace FGCZExtensions
         {
             try
             {
+                rawFile.SelectInstrument(Device.MS, 1); // Get Mass Spectrometer data
                 // Get the instrument method - typically instrument 0 is the LC
                 var instrumentMethod = rawFile.GetInstrumentMethod(0);
+                var gradientFileContents = new List<string>();
 
-                using (var file = new System.IO.StreamWriter(filename))
+                gradientFileContents.Add("#R\n");
+                gradientFileContents.Add("e$gradient <- list()\n");
+
+                // The instrument method is typically in XML or plain text format
+                // Parse the method string to extract gradient information
+                var methodText = instrumentMethod.ToString();
+
+                // Use regex patterns to extract gradient table information
+                var timestampPattern = @"Time\s*[:=]\s*([\d.]+)";
+                var percentBPattern = @"%B\s*[:=]\s*([\d.]+)";
+                var flowRatePattern = @"Flow\s*[:=]\s*([\d.]+)";
+                var curvePattern = @"Curve\s*[:=]\s*(\d+)";
+
+                var lines = methodText.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                int gradientIndex = 1;
+
+                foreach (var line in lines)
                 {
-                    file.WriteLine("#R\n");
-                    file.WriteLine("e$gradient <- list()\n");
+                    var timeMatch = System.Text.RegularExpressions.Regex.Match(line, timestampPattern);
+                    var percentBMatch = System.Text.RegularExpressions.Regex.Match(line, percentBPattern);
+                    var flowMatch = System.Text.RegularExpressions.Regex.Match(line, flowRatePattern);
+                    var curveMatch = System.Text.RegularExpressions.Regex.Match(line, curvePattern);
 
-                    // The instrument method is typically in XML or plain text format
-                    // Parse the method string to extract gradient information
-                    var methodText = instrumentMethod.ToString();
-
-                    // Use regex patterns to extract gradient table information
-                    var timestampPattern = @"Time\s*[:=]\s*([\d.]+)";
-                    var percentBPattern = @"%B\s*[:=]\s*([\d.]+)";
-                    var flowRatePattern = @"Flow\s*[:=]\s*([\d.]+)";
-                    var curvePattern = @"Curve\s*[:=]\s*(\d+)";
-
-                    var lines = methodText.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                    int gradientIndex = 1;
-
-                    foreach (var line in lines)
+                    if (timeMatch.Success || percentBMatch.Success || flowMatch.Success)
                     {
-                        var timeMatch = System.Text.RegularExpressions.Regex.Match(line, timestampPattern);
-                        var percentBMatch = System.Text.RegularExpressions.Regex.Match(line, percentBPattern);
-                        var flowMatch = System.Text.RegularExpressions.Regex.Match(line, flowRatePattern);
-                        var curveMatch = System.Text.RegularExpressions.Regex.Match(line, curvePattern);
+                        gradientFileContents.Add($"e$gradient[[{gradientIndex}]] <- list(");
 
-                        if (timeMatch.Success || percentBMatch.Success || flowMatch.Success)
-                        {
-                            file.WriteLine($"e$gradient[[{gradientIndex}]] <- list(");
+                        if (timeMatch.Success)
+                            gradientFileContents.Add($"\ttimestamp = {timeMatch.Groups[1].Value},");
+                        else
+                            gradientFileContents.Add("\ttimestamp = NA,");
 
-                            if (timeMatch.Success)
-                            file.WriteLine($"\ttimestamp = {timeMatch.Groups[1].Value},");
-                            else
-                            file.WriteLine("\ttimestamp = NA,");
+                        if (percentBMatch.Success)
+                            gradientFileContents.Add($"\tpercentB = {percentBMatch.Groups[1].Value},");
+                        else
+                            gradientFileContents.Add("\tpercentB = NA,");
 
-                            if (percentBMatch.Success)
-                            file.WriteLine($"\tpercentB = {percentBMatch.Groups[1].Value},");
-                            else
-                            file.WriteLine("\tpercentB = NA,");
+                        if (flowMatch.Success)
+                            gradientFileContents.Add($"\tflowRate = {flowMatch.Groups[1].Value},");
+                        else
+                            gradientFileContents.Add("\tflowRate = NA,");
 
-                            if (flowMatch.Success)
-                            file.WriteLine($"\tflowRate = {flowMatch.Groups[1].Value},");
-                            else
-                            file.WriteLine("\tflowRate = NA,");
+                        if (curveMatch.Success)
+                            gradientFileContents.Add($"\tcurve = {curveMatch.Groups[1].Value}");
+                        else
+                            gradientFileContents.Add("\tcurve = NA");
 
-                            if (curveMatch.Success)
-                            file.WriteLine($"\tcurve = {curveMatch.Groups[1].Value}");
-                            else
-                            file.WriteLine("\tcurve = NA");
-
-                            file.WriteLine(")");
-                            gradientIndex++;
-                        }
+                        gradientFileContents.Add(")");
+                        gradientIndex++;
                     }
-
-                    file.WriteLine($"\ne$gradient$length <- {gradientIndex - 1}");
                 }
+
+                gradientFileContents.Add($"\ne$gradient$length <- {gradientIndex - 1}");
+                FileIOHelper.WriteTextToFile(filename, string.Join("\n", gradientFileContents));
             }
             catch (Exception ex)
             {
@@ -753,477 +707,476 @@ namespace FGCZ_Raw
 
     internal static class Program
     {
+        /// <summary>
+        /// Reads the base peak chromatogram for the RAW file
+        /// </summary>
+        /// <param name="rawFile">
+        /// The RAW file being read
+        /// </param>
+        /// <param name="startScan">
+        /// Start scan for the chromatogram
+        /// </param>
+        /// <param name="endScan">
+        /// End scan for the chromatogram
+        /// </param>
+        /// <param name="outputData">
+        /// The output data flag.
+        /// </param>
+        /// <param name="filter">
+        /// The chromatic filter flag.
+        /// </param>
+        private static void GetChromatogram(IRawDataPlus rawFile, int startScan, int endScan, string filename, string filter = "ms")
+        {
+            if (IsValidFilter(rawFile, filter) == false)
+            {
+                Console.WriteLine("# '{0}' is not a valid filter string.", filter);
+                return;
+            }
+
+            using (var file = FileIOHelper.CreateStreamWriter(filename))
+            {
+                // TODO(tk@fgcz.ethz.ch): check mass interval for chromatograms and its dep for diff MS detector types
+                // TODO(cp@fgcz.ethz.ch): return mass intervals to the R environment
+                // Define the settings for getting the Base Peak chromatogram
+                ChromatogramTraceSettings settingsTIC = new ChromatogramTraceSettings(TraceType.TIC) { Filter = filter };
+                ChromatogramTraceSettings settingsBasePeak = new ChromatogramTraceSettings(TraceType.BasePeak)
+                {
+                    Filter = filter,
+                    MassRanges = new[] { ThermoFisher.CommonCore.Data.Business.Range.Create(100, 1805) }
+                };
+                ChromatogramTraceSettings settingsMassRange = new ChromatogramTraceSettings(TraceType.MassRange)
+                {
+                    Filter = filter,
+                    MassRanges = new[] { ThermoFisher.CommonCore.Data.Business.Range.Create(50, 2000000) }
+                };
+
+                // Get the chromatogram from the RAW file.
+                var dataTIC = rawFile.GetChromatogramData(new IChromatogramSettings[] { settingsTIC }, startScan, endScan);
+                var dataMassRange = rawFile.GetChromatogramData(new IChromatogramSettings[] { settingsMassRange }, startScan, endScan);
+                var dataBasePeak = rawFile.GetChromatogramData(new IChromatogramSettings[] { settingsBasePeak }, startScan, endScan);
+
+                // Split the data into the chromatograms
+                var traceTIC = ChromatogramSignal.FromChromatogramData(dataTIC);
+                var traceMassRange = ChromatogramSignal.FromChromatogramData(dataMassRange);
+                var traceBasePeak = ChromatogramSignal.FromChromatogramData(dataBasePeak);
+
+
+                if (traceBasePeak[0].Length > 0)
+                {
+
+                    // Print the chromatogram data (time, intensity values)
+                    file.WriteLine("# TIC chromatogram ({0} points)", traceTIC[0].Length);
+                    file.WriteLine("# Base Peak chromatogram ({0} points)", traceBasePeak[0].Length);
+                    file.WriteLine("# MassRange chromatogram ({0} points)", traceMassRange[0].Length);
+
+                    file.WriteLine("rt;intensity.BasePeak;intensity.TIC;intensity.MassRange");
+
+                    for (int i = 0; i < traceBasePeak[0].Length; i++)
+                    {
+                        file.WriteLine("{1:F3};{2:F0};{3:F0};{4:F0}", i, traceBasePeak[0].Times[i], traceBasePeak[0].Intensities[i], traceTIC[0].Intensities[i], traceMassRange[0].Intensities[i]);
+                    }
+
+                }
+                file.WriteLine();
+            }
+
+        }
+
+        private static bool IsValidFilter(IRawDataPlus rawFile, string filter)
+        {
+            if (rawFile.GetFilterFromString(filter) == null)
+            {
+                return false;
+            }
+            return true;
+        }
+
+        private static void ExtractIonChromatogramAsRcode(IRawDataPlus rawFile, int startScan, int endScan, List<double> massList,
+        double ppmError, string filename, string filter = "ms")
+        {
+
+            if (IsValidFilter(rawFile, filter) == false)
+            {
+                using (var file = FileIOHelper.CreateStreamWriter(filename))
+                {
+                    file.WriteLine("e$error <- \"'{0}' is not a valid filter string.\";", filter);
+                }
+                return;
+            }
+
+            List<ChromatogramTraceSettings> settingList = new List<ChromatogramTraceSettings>();
+
+            foreach (var mass in massList)
+            {
+                double massError = (0.5 * ppmError * mass) / 1000000;
+                ChromatogramTraceSettings settings = new ChromatogramTraceSettings(TraceType.MassRange)
+                {
+                    Filter = filter,
+                    MassRanges = new[] { ThermoFisher.CommonCore.Data.Business.Range.Create(mass - massError, mass + massError) }
+                };
+
+                settingList.Add(settings);
+            }
+
+            IChromatogramSettings[] allSettings = settingList.ToArray();
+
+            var data = rawFile.GetChromatogramData(allSettings, startScan, endScan);
+
+            // Split the data into the chromatograms
+            var trace = ChromatogramSignal.FromChromatogramData(data);
+
+            using (var file = FileIOHelper.CreateStreamWriter(filename))
+            {
+                file.WriteLine("#R\n");
+
+                for (int i = 0; i < trace.Length; i++)
+                {
+                    List<double> tTime = new List<double>();
+                    List<double> tIntensities = new List<double>();
+
+                    for (int j = 0; j < trace[i].Times.Count; j++)
+                    {
+                        //   if (trace[i].Intensities[j] > 0)
+                        {
+                            tTime.Add(trace[i].Times[j]);
+                            tIntensities.Add(trace[i].Intensities[j]);
+                        }
+
+                    }
+
+                    file.WriteLine("e$chromatogram[[{0}]] <- list(", i + 1);
+                    file.WriteLine("\tfilter = '{0}',", filter);
+                    file.WriteLine("\tppm = {0},", ppmError);
+                    file.WriteLine("\tmass = {0},", massList[i]);
+                    file.WriteLine("\ttimes = c(" + string.Join(",", tTime) + "),");
+                    file.WriteLine("\tintensities = c(" + string.Join(",", tIntensities) + ")");
+                    file.WriteLine(");");
+                }
+            }
+        }
+
         private static void Main(string[] args)
         {
             // This local variable controls if the AnalyzeAllScans method is called
             // bool analyzeScans = false;
             const string rawrrVersion = "1.17.2";
-            string filename = string.Empty;
-            string mode = string.Empty;
-            string filterString = string.Empty;
-            Hashtable hashtable = new Hashtable()
+            // `headerR` command and arguments
+            Argument<string> inputRawFileArg = new Argument<string>("inputfile")
             {
-                {"filter", "List all scan ids pass the filter string (option 2)."},
-                {"getFilters", "List all scan filters of a given raw file."},
-                {"isValidFilter", "Checks whether the provided argument string (option 2) is a valid filter."},
-                {"headerR", "Writes the raw file's meta data as R code to a file."},
-                {"enhancedHeaderR", "Writes enhanced raw file meta data as R code to a file."},
-                {"gradient", "Extracts LC gradient information from the instrument method as R code to a file."},
-                {"chromatogram", "Extracts base peak and total ion count chromatograms into a file."},
-                {
-                    "xic",
-                    "Extracts filtered (option 2) ion chromatograms within a given mass and mass tolerance [in ppm] (option 3) xic of a given raw file as R code into a file."
-                },
-                {"scans", "Extracts scans (spectra) of a given ID as Rcode."},
-                {"barebone", "Extracts 'barebone' scans (spectra), including only mZ, intensity , precursorMass, rtinsecodonds and charge state, of a given ID as Rcode."},
-                {"index", "Prints index as csv of all scans."},
-                {"trailer", "Prints all trailer labels."}
+                Description = "Input RAW file"
             };
-            var helpOptions = new List<string>() {"help", "--help", "-h", "h", "/h"};
-            var versionOptions = new List<string>() {"version", "--version", "-v", "-V", "/v"};
+            Argument<string> outputFileArg = new Argument<string>("outputfile")
+            {
+                Description = "Output file"
+            };
+            // Parse command-line arguments
+            RootCommand rootCommand = new RootCommand("rawrr - A .NET library and command line tool to access Thermo Fisher Scientific RAW files.");
+            rootCommand.Arguments.Add(inputRawFileArg);
+            rootCommand.Arguments.Add(outputFileArg);
 
-            if (args.Length >= 2){
-                filename = args[0];
-                mode = args[1];
-                if (!hashtable.Contains(mode))
+            Command headerRCommand = new Command("headerR", "Writes the raw file's meta data as R code to a file.");
+            headerRCommand.Arguments.Add(inputRawFileArg);
+            headerRCommand.Arguments.Add(outputFileArg);
+            headerRCommand.SetAction((ParseResult parseResult) =>
+            {
+                string inputFile = parseResult.GetValue(inputRawFileArg);
+                Console.WriteLine($"Input file: {inputFile}");
+                string outputFile = parseResult.GetValue(outputFileArg);
+                Console.WriteLine($"Output file: {outputFile}");
+                using (var rawFile = FileIOHelper.CreateRawDataPlus(inputFile))
                 {
-                    Console.WriteLine("\nOption '{0}' is not defined. Please use one of the following options as argument:", mode);
-                    foreach (var k in hashtable.Keys)
-                    Console.WriteLine("  {0,-15}   {1}", k.ToString(), hashtable[k].ToString());
-                    Console.WriteLine();
-
-                    Environment.Exit(1);
-                }}
-                else
+                    rawFile.GenerateHeaderInformationAsRCode(outputFile);
+                }
+            });
+            // `gradient` command and arguments
+            Command gradientCommand = new Command("gradient", "Extracts LC gradient information from the instrument method as R code to a file.");
+            gradientCommand.Arguments.Add(inputRawFileArg);
+            gradientCommand.Arguments.Add(outputFileArg);
+            gradientCommand.SetAction((ParseResult parseResult) =>
+            {
+                string inputFile = parseResult.GetValue(inputRawFileArg);
+                string outputFile = parseResult.GetValue(outputFileArg);
+                using (var rawFile = FileIOHelper.CreateRawDataPlus(inputFile))
                 {
-                    if (args.Length == 0)
+                    rawFile.ExtractLCGradient(outputFile);
+                }
+            });
+            // `trailer` command and arguments
+            Option<string> trailerOutputFile = new Option<string>("--output")
+            {
+                Description = "The name of the output file. If not provided, prints trailer labels to console.",
+                DefaultValueFactory = _ => null
+            };
+            Command trailerCommand = new Command("trailer", "Prints all trailer labels. If an output file is provided, prints trailer values of the specified label to the file.");
+            trailerCommand.Arguments.Add(inputRawFileArg);
+            trailerCommand.Options.Add(trailerOutputFile);
+            trailerCommand.SetAction((ParseResult parseResult) =>
+            {
+                string inputFile = parseResult.GetValue(inputRawFileArg);
+                string outputFile = parseResult.GetValue(trailerOutputFile);
+                using (var rawFile = FileIOHelper.CreateRawDataPlus(inputFile))
+                {
+                    if (string.IsNullOrEmpty(outputFile))
                     {
-                        Console.WriteLine("No RAW file specified!");
-                        return;
-                    }
-                    else if (versionOptions.Contains(args[0]))
-                    {
-                        Console.WriteLine(rawrrVersion);
-                        Environment.Exit(0);
-                    }
-                    else if (helpOptions.Contains(args[0]))
-                    {
-                        Console.WriteLine("\nUsage:\n");
-                        Console.WriteLine("  rawrr.exe <raw file> <option>\n");
-                        Console.WriteLine("  rawrr.exe <raw file> <option> <input file> <output file>\n");
-                        Console.WriteLine(
-                        "  rawrr.exe <raw file> <option 1> <option 2> <option 3> <input file> <output file>\n");
-                        Console.WriteLine("\nOptions:\n");
-                        foreach (var k in hashtable.Keys)
-                        {
-                            Console.WriteLine("  {0,-15}   {1}", k.ToString(), hashtable[k].ToString());
-                        }
-                        Console.WriteLine("\nReport bugs at <https://github.com/fgcz/rawrr/issues>.\n");
-                        Environment.Exit(0);
+                        rawFile.WriteTrailerLabel();
                     }
                     else
                     {
-                        Console.WriteLine("run 'rawrr.exe help'.");
+                        rawFile.WriteTrailerValues(outputFile);
+                    }
+                }
+            });
+            // `filter` command and arguments
+            Argument<string> filterStringArg = new Argument<string>("filterstring")
+            {
+                Description = "Filter string"
+            };
+            Argument<int> filterPrecisionArg = new Argument<int>("precision")
+            {
+                Description = "Filter precision"
+            };
+            Command filterCommand = new Command("filter", "List all scan ids that pass the filter string (option 2).");
+            filterCommand.Arguments.Add(inputRawFileArg);
+            filterCommand.Arguments.Add(filterStringArg);
+            filterCommand.Arguments.Add(filterPrecisionArg);
+            filterCommand.Arguments.Add(outputFileArg);
+            filterCommand.SetAction((ParseResult parseResult) =>
+            {
+                string filename = parseResult.GetValue(inputRawFileArg);
+                string filterString = parseResult.GetValue(filterStringArg);
+                int precision = parseResult.GetValue(filterPrecisionArg);
+                string outputFilename = parseResult.GetValue(outputFileArg);
+
+                using (var rawFile = FileIOHelper.CreateRawDataPlus(filename))
+                {
+                    if (!IsValidFilter(rawFile, filterString))
+                    {
+                        Console.Write("\nThe provided filter string '{0}' is not valid. Please check the filter syntax.\n", filterString);
                         Environment.Exit(1);
                     }
+                    using (var file = FileIOHelper.CreateStreamWriter(outputFilename))
+                    {
+                        foreach (var ss in rawFile.GetFilteredScanEnumerator(rawFile.GetFilterFromString(filterString, precision)).ToArray())
+                        {
+                            file.WriteLine(ss);
+                        }
+                    }
                 }
-
-                if (string.IsNullOrEmpty(filename))
+            });
+            // `isValidFilter` command and arguments
+            Argument<string> isValidFilterStringArg = new Argument<string>("filterstring")
+            {
+                Description = "Filter string"
+            };
+            Command isValidFilterCommand = new Command("isValidFilter", "Checks whether the provided argument string (option 2) is a valid filter.");
+            isValidFilterCommand.Arguments.Add(inputRawFileArg);
+            isValidFilterCommand.Arguments.Add(isValidFilterStringArg);
+            isValidFilterCommand.SetAction((ParseResult parseResult) =>
+            {
+                string filename = parseResult.GetValue(inputRawFileArg);
+                string filterstring = parseResult.GetValue(isValidFilterStringArg);
+                using (var rawFile = FileIOHelper.CreateRawDataPlus(filename))
                 {
-                    Console.WriteLine("No RAW file specified!");
-                    return;
-                }
-                //Environment.Exit(0);
-
-                // Get the memory used at the beginning of processing
-                Process processBefore = Process.GetCurrentProcess();
-                long memoryBefore = processBefore.PrivateMemorySize64 / 1024;
-                try
-                {
-                    // Create the IRawDataPlus object for accessing the RAW file
-                    var rawFile = RawFileReaderAdapter.FileFactory(filename);
-
-                    if (!rawFile.IsOpen || rawFile.IsError)
-                    {
-                        Console.WriteLine("Unable to access the RAW file using the RawFileReader class!");
-
-                        return;
-                    }
-
-                    // Check for any errors in the RAW file
-                    if (rawFile.IsError)
-                    {
-                        Console.WriteLine("Error opening ({0}) - {1}", rawFile.FileError, filename);
-
-                        return;
-                    }
-
-                    // Check if the RAW file is being acquired
-                    if (rawFile.InAcquisition)
-                    {
-                        Console.WriteLine("RAW file still being acquired - " + filename);
-
-                        return;
-                    }
-
                     rawFile.SelectInstrument(Device.MS, 1);
-                    //Console.WriteLine("DEBUG {0}", rawFile.GetInstrumentMethod(3).ToString());
-
-                    // Get the first and last scan from the RAW file
-                    int firstScanNumber = rawFile.RunHeaderEx.FirstSpectrum;
-                    int lastScanNumber = rawFile.RunHeaderEx.LastSpectrum;
-
-                    // Get the start and end time from the RAW file
-                    double startTime = rawFile.RunHeaderEx.StartTime;
-                    double endTime = rawFile.RunHeaderEx.EndTime;
-
-                    if (mode == "headerR"){
-                        var outputFilename = args[3];
-                        rawFile.PrintHeaderAsRcode(outputFilename);
-                        return;
-                    }
-                    else if (mode == "enhancedHeaderR")
+                    Console.WriteLine(IsValidFilter(rawFile, filterstring).ToString());
+                }
+            });
+            // `getFilters` command and arguments
+            Command getFiltersCommand = new Command("getFilters", "List all scan filters of a given raw file.");
+            getFiltersCommand.Arguments.Add(inputRawFileArg);
+            getFiltersCommand.SetAction((ParseResult parseResult) =>
+            {
+                string inputFile = parseResult.GetValue(inputRawFileArg);
+                using (var rawFile = FileIOHelper.CreateRawDataPlus(inputFile))
+                {
+                    rawFile.SelectInstrument(Device.MS, 1);
+                    foreach (var filter in rawFile.GetFilters())
                     {
-                        var outputFilename = args[3];
-                        rawFile.GenerateHeaderInformationAsRCode(outputFilename);
-                        return;
+                        Console.WriteLine(filter.ToString());
                     }
-                    else if (mode == "gradient")
+                }
+            });
+            // `chromatogram` command and arguments
+            // NOTE: We'll need to figure out how to properly set the default value for output file since it will inherit value from root command
+            // chromatogramOutputFileArg.SetDefaultValue("chromatogram.csv");
+            Argument<string> chromatogramFilterStringArg = new Argument<string>("filter")
+            {
+                Description = "Filter string. Defaults to 'ms'.",
+                DefaultValueFactory = _ => "ms",
+            };
+            var chromatogramCommand = new Command("chromatogram", "Extracts base peak and total ion count chromatograms into a file.");
+            chromatogramCommand.Arguments.Add(inputRawFileArg);
+            chromatogramCommand.Arguments.Add(outputFileArg);
+            chromatogramCommand.Arguments.Add(chromatogramFilterStringArg);
+            chromatogramCommand.SetAction((ParseResult parseResult) =>
+            {
+                string inputfile = parseResult.GetValue(inputRawFileArg);
+                string outputfile = parseResult.GetValue(outputFileArg);
+                string filterstring = parseResult.GetValue(chromatogramFilterStringArg);
+                using (var rawFile = FileIOHelper.CreateRawDataPlus(inputfile))
+                {
+                    var firstScanNumber = rawFile.RunHeaderEx.FirstSpectrum;
+                    var lastScanNumber = rawFile.RunHeaderEx.LastSpectrum;
+                    GetChromatogram(rawFile, firstScanNumber, lastScanNumber, outputfile, filterstring);
+                }
+            });
+            // `index` command and arguments
+            Command indexCommand = new Command("index", "Prints index as csv of all scans.");
+            indexCommand.Arguments.Add(inputRawFileArg);
+            indexCommand.SetAction((ParseResult parseResult) =>
+            {
+                string inputfile = parseResult.GetValue(inputRawFileArg);
+                using (var rawFile = FileIOHelper.CreateRawDataPlus(inputfile))
+                {
+                    rawFile.GetIndex();
+                }
+            });
+            // `scans` command and arguments
+            Argument<string> scansScanFileArg = new Argument<string>("scanfile")
+            {
+                Description = "File containing scan ids to extract."
+            };
+            Command scansCommand = new Command("scans", "Extracts scans (spectra) of a given ID as Rcode.");
+            scansCommand.Arguments.Add(inputRawFileArg);
+            scansCommand.Arguments.Add(scansScanFileArg);
+            scansCommand.Arguments.Add(outputFileArg);
+            scansCommand.SetAction((ParseResult parseResult) =>
+            {
+                string inputfile = parseResult.GetValue(inputRawFileArg);
+                string outputfile = parseResult.GetValue(outputFileArg);
+                string scanIdsFile = parseResult.GetValue(scansScanFileArg);
+                List<int> scanIds = new List<int>();
+                using (var rawFile = FileIOHelper.CreateRawDataPlus(inputfile))
+                {
+                    rawFile.SelectInstrument(Device.MS, 1);
+                    // Read scan ids from file
+
+                    foreach (var line in File.ReadAllLines(scanIdsFile))
                     {
-                        var outputFilename = args[2];
-                        rawFile.ExtractLCGradient(outputFilename);
-                        return;
+                        if (int.TryParse(line.Trim(), out int scanNumber))
+                        {
+                            if (scanNumber > 0)
+                            {
+                                scanIds.Add(scanNumber);
+                            }
+                        }
                     }
-
-                    // Get the number of filters present in the RAW file
-                    int numberFilters = rawFile.GetFilters().Count;
-
-                    if (mode == "trailer" && args.Length == 2){
-                        rawFile.WriteTrailerLabel();
-                        return;
-                    } else if (mode == "trailer" && args.Length == 3) {
-                        //Console.WriteLine(args[2]);
-                        rawFile.WriteTrailerValues(args[2]);
-                        return;
-                    }
-
-                    if (mode == "filter")
+                    if (scanIds.Count == 0)
                     {
-                        filterString = args[2].ToString();
-                        int precision = int.Parse(args[3]);
-                        var outputFilename = args[4];
-
-                        if(!IsValidFilter(rawFile, filterString))
+                        rawFile.WriteSpectrumAsRcode0(outputfile);
+                    }
+                    else
+                    {
+                        rawFile.WriteSpectrumAsRcode(outputfile, scanIds);
+                    }
+                }
+            });
+            Argument<string> bareboneScanFileArg = new Argument<string>("scanfile")
+            {
+                Description = "File containing scan ids to extract."
+            };
+            Command bareboneCommand = new Command("barebone", "Extracts only the spectra of a given ID as Rcode.");
+            bareboneCommand.Arguments.Add(inputRawFileArg);
+            bareboneCommand.Arguments.Add(bareboneScanFileArg);
+            bareboneCommand.Arguments.Add(outputFileArg);
+            bareboneCommand.SetAction((ParseResult parseResult) =>
+            {
+                string inputfile = parseResult.GetValue(inputRawFileArg);
+                string outputfile = parseResult.GetValue(outputFileArg);
+                string scanIdsFile = parseResult.GetValue(bareboneScanFileArg);
+                List<int> scanIds = new List<int>();
+                using (var rawFile = FileIOHelper.CreateRawDataPlus(inputfile))
+                {
+                    rawFile.SelectInstrument(Device.MS, 1);
+                    // Read scan ids from file
+                    foreach (var line in File.ReadAllLines(scanIdsFile))
+                    {
+                        if (int.TryParse(line.Trim(), out int scanNumber))
+                        {
+                            if (scanNumber > 0)
+                            {
+                                scanIds.Add(scanNumber);
+                            }
+                        }
+                    }
+                    if (scanIds.Count == 0)
+                    {
+                        rawFile.WriteSpectrumAsRcode0(outputfile);
+                    }
+                    else
+                    {
+                        rawFile.WriteCentroidSpectrumAsRcode(outputfile, scanIds);
+                    }
+                }
+            });
+            // `xic` command and arguments
+            // Stands for extracted ion chromatogram
+            Argument<string> massListFileArg = new Argument<string>("mass-list-file")
+            {
+                Description = "File containing masses to extract."
+            };
+            Argument<double> xicPpmArg = new Argument<double>("ppm")
+            {
+                Description = "Mass tolerance in ppm.",
+            };
+            Argument<string> xicFilterStringArg = new Argument<string>("--filter")
+            {
+                Description = "Filter string. Defaults to 'ms'.",
+                DefaultValueFactory = _ => "ms",
+            };
+            var xicCommand = new Command("xic", "Extracts filtered (option 2) ion chromatograms within a given mass and mass tolerance [in ppm] (option 3) xic of a given raw file as R code into a file.");
+            xicCommand.Arguments.Add(inputRawFileArg);
+            xicCommand.Arguments.Add(xicPpmArg);
+            xicCommand.Arguments.Add(xicFilterStringArg);
+            xicCommand.Arguments.Add(massListFileArg);
+            xicCommand.Arguments.Add(outputFileArg);
+            xicCommand.SetAction((ParseResult parseResult) =>
+            {
+                string inputfile = parseResult.GetValue(inputRawFileArg);
+                double ppmError = parseResult.GetValue(xicPpmArg);
+                string massListFile = parseResult.GetValue(massListFileArg);
+                string outputfile = parseResult.GetValue(outputFileArg);
+                List<double> massList = new List<double>();
+                using (var rawFile = FileIOHelper.CreateRawDataPlus(inputfile))
+                {
+                    rawFile.SelectInstrument(Device.MS, 1);
+                    // Read masses from file    
+                    if (File.Exists(massListFile) == false)
+                    {
+                        Console.WriteLine($"Mass list file '{massListFile}' does not exist!");
                         Environment.Exit(1);
-
-                        using (System.IO.StreamWriter file =
-                        new System.IO.StreamWriter(outputFilename))
+                    }
+                    foreach (var line in File.ReadAllLines(massListFile))
+                    {
+                        if (double.TryParse(line.Trim(), out double mass))
                         {
-                            foreach (var ss in rawFile
-                            .GetFilteredScanEnumerator(rawFile.GetFilterFromString(filterString, precision)).ToArray())
-                            {
-                                file.WriteLine(ss);
-                            }
-                        }
-
-                        Environment.Exit(0);
-                    }
-
-                    if (mode == "isValidFilter")
-                    {
-                        Console.WriteLine(IsValidFilter(rawFile, args[2].ToString()).ToString());
-                        Environment.Exit(0);
-                    }
-
-                    if (mode == "getFilters")
-                    {
-                        foreach (var filter in rawFile.GetFilters())
-                        {
-                            Console.WriteLine(filter.ToString());
-                        }
-                        Environment.Exit(0);
-                    }
-
-                    if (mode == "chromatogram")
-                    {
-                        // Get the BasePeak chromatogram for the MS data
-                        string filter = "ms";
-                        string outputcsv = "chromatogram.csv";
-                        try {
-                            filter = args[2];
-                        }
-                        catch{
-                        }
-                        try {
-                            outputcsv = args[3];
-                        }
-                        catch{
-                        }
-                        GetChromatogram(rawFile, firstScanNumber, lastScanNumber, outputcsv, filter);
-                        Environment.Exit(0);
-                    }
-
-
-                    if (mode == "index"){
-                        rawFile.GetIndex();
-                        return;
-                    }
-
-                    if (mode == "scans")
-                    {
-                        List<int> scans = new List<int>();
-
-                        var scanfile = args[2];
-                        int scanNumber;
-
-                        foreach (var line in File.ReadAllLines(scanfile))
-                        {
-
-                            try{
-                                Int32.TryParse(line, out scanNumber);
-                                if (scanNumber > 0)
-                                scans.Add(scanNumber);
-                            }
-                            catch{}
-                        }
-
-                        if (scans.Count == 0)
-                        rawFile.WriteSpectrumAsRcode0(args[3]);
-                        else
-                        rawFile.WriteSpectrumAsRcode(args[3], scans);
-
-                        return;
-
-                    }
-                    // extracs only the specta
-                    if (mode == "barebone")
-                    {
-                        List<int> scans = new List<int>();
-
-                        var scanfile = args[2];
-                        int scanNumber;
-
-                        foreach (var line in File.ReadAllLines(scanfile))
-                        {
-
-                            // parses the input while accepting only integers greater than 0
-                            try{
-                                Int32.TryParse(line, out scanNumber);
-                                if (scanNumber > 0)
-                                scans.Add(scanNumber);
-                            }
-                            catch{}
-                        }
-
-                        if (scans.Count == 0)
-                        rawFile.WriteSpectrumAsRcode0(args[3]);
-                        else
-                        rawFile.WriteCentroidSpectrumAsRcode(args[3], scans);
-
-                        return;
-
-                    }
-
-                    if (mode == "xic")
-                    {
-                        //  Console.WriteLine("xic");
-                        try
-                        {
-                            double ppmError = Convert.ToDouble(args[2]);
-                            // Console.WriteLine(ppmError);
-                            string filter = "ms";
-                            try {
-                                filter = args[3];
-                            }
-                            catch{
-                            }
-                            //Console.WriteLine(filter);
-                            var inputFilename = args[4];
-                            var outputFilename = args[5];
-
-                            List<double> massList = new List<double>();
-                            if (File.Exists(inputFilename))
-                            {
-                                foreach (var line in File.ReadAllLines(inputFilename))
-                                {
-                                    //Console.WriteLine(Convert.ToDouble(line));
-                                    massList.Add(Convert.ToDouble(line));
-                                }
-
-                                ExtractIonChromatogramAsRcode(rawFile, -1, -1, massList, ppmError, outputFilename, filter);
-                            }
-
-                            return;
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.Error.WriteLine("failed to catch configfile and itol");
-                            Console.Error.WriteLine("{}", ex.Message);
-                            return;
+                            massList.Add(mass);
                         }
                     }
+                    ExtractIonChromatogramAsRcode(rawFile, -1, -1, massList, ppmError, outputfile);
                 }
-
-                catch (Exception ex)
-                {
-                    Console.WriteLine("Error accessing RAWFileReader library! - " + ex.Message);
-                }
-
-                // Get the memory used at the end of processing
-                Process processAfter = Process.GetCurrentProcess();
-                long memoryAfter = processAfter.PrivateMemorySize64 / 1024;
-
-                Console.WriteLine();
-                Console.WriteLine("Memory Usage:");
-                Console.WriteLine("   Before {0} kb, After {1} kb, Extra {2} kb", memoryBefore, memoryAfter,
-                memoryAfter - memoryBefore);
-            }
-
-
-            /// <summary>
-            /// Reads the base peak chromatogram for the RAW file
-            /// </summary>
-            /// <param name="rawFile">
-            /// The RAW file being read
-            /// </param>
-            /// <param name="startScan">
-            /// Start scan for the chromatogram
-            /// </param>
-            /// <param name="endScan">
-            /// End scan for the chromatogram
-            /// </param>
-            /// <param name="outputData">
-            /// The output data flag.
-            /// </param>
-            /// <param name="filter">
-            /// The chromatic filter flag.
-            /// </param>
-            private static void GetChromatogram(IRawDataPlus rawFile, int startScan, int endScan,  string filename, string filter = "ms")
-            {
-                if (IsValidFilter(rawFile, filter) == false){
-                    Console.WriteLine("# '{0}' is not a valid filter string.", filter);
-                    return;
-                }
-
-                using (System.IO.StreamWriter file =
-                new System.IO.StreamWriter(filename))
-                {
-                    // TODO(tk@fgcz.ethz.ch): check mass interval for chromatograms and its dep for diff MS detector types
-                    // TODO(cp@fgcz.ethz.ch): return mass intervals to the R environment
-                    // Define the settings for getting the Base Peak chromatogram
-                    ChromatogramTraceSettings settingsTIC = new ChromatogramTraceSettings(TraceType.TIC){Filter=filter};
-                    ChromatogramTraceSettings settingsBasePeak = new ChromatogramTraceSettings(TraceType.BasePeak){
-                        Filter=filter,
-                        MassRanges = new[] {ThermoFisher.CommonCore.Data.Business.Range.Create(100, 1805)}
-                    };
-                    ChromatogramTraceSettings settingsMassRange = new ChromatogramTraceSettings(TraceType.MassRange){
-                        Filter=filter,
-                        MassRanges = new[] {ThermoFisher.CommonCore.Data.Business.Range.Create(50, 2000000)}
-                    };
-
-                    // Get the chromatogram from the RAW file.
-                    var dataTIC = rawFile.GetChromatogramData(new IChromatogramSettings[] {settingsTIC}, startScan, endScan);
-                    var dataMassRange = rawFile.GetChromatogramData(new IChromatogramSettings[] {settingsMassRange}, startScan, endScan);
-                    var dataBasePeak = rawFile.GetChromatogramData(new IChromatogramSettings[] {settingsBasePeak}, startScan, endScan);
-
-                    // Split the data into the chromatograms
-                    var traceTIC = ChromatogramSignal.FromChromatogramData(dataTIC);
-                    var traceMassRange = ChromatogramSignal.FromChromatogramData(dataMassRange);
-                    var traceBasePeak = ChromatogramSignal.FromChromatogramData(dataBasePeak);
-
-
-                    if (traceBasePeak[0].Length > 0)
-                    {
-
-                        // Print the chromatogram data (time, intensity values)
-                        file.WriteLine("# TIC chromatogram ({0} points)", traceTIC[0].Length);
-                        file.WriteLine("# Base Peak chromatogram ({0} points)", traceBasePeak[0].Length);
-                        file.WriteLine("# MassRange chromatogram ({0} points)", traceMassRange[0].Length);
-
-                        file.WriteLine("rt;intensity.BasePeak;intensity.TIC;intensity.MassRange");
-
-                        for (int i = 0; i < traceBasePeak[0].Length; i++)
-                        {
-                            file.WriteLine("{1:F3};{2:F0};{3:F0};{4:F0}", i, traceBasePeak[0].Times[i], traceBasePeak[0].Intensities[i], traceTIC[0].Intensities[i], traceMassRange[0].Intensities[i]);
-                        }
-
-                    }
-                    file.WriteLine();
-                }
-
-            }
-
-            private static bool IsValidFilter(IRawDataPlus rawFile, string filter)
-            {
-                if (rawFile.GetFilterFromString(filter) == null) {
-                    return false;
-                }
-                return true;
-            }
-
-            private static void ExtractIonChromatogramAsRcode(IRawDataPlus rawFile, int startScan, int endScan, List<double> massList,
-            double ppmError, string filename, string filter = "ms")
-            {
-
-                if (IsValidFilter(rawFile, filter) == false){
-                    using (System.IO.StreamWriter file =
-                    new System.IO.StreamWriter(filename))
-                    {
-                        file.WriteLine("e$error <- \"'{0}' is not a valid filter string.\";", filter);
-                    }
-                    return;
-                }
-
-                List<ChromatogramTraceSettings> settingList = new List<ChromatogramTraceSettings>();
-
-                foreach (var mass in massList)
-                {
-                    double massError = (0.5 * ppmError * mass) / 1000000;
-                    ChromatogramTraceSettings settings = new ChromatogramTraceSettings(TraceType.MassRange)
-                    {
-                        Filter = filter,
-                        MassRanges = new[] {ThermoFisher.CommonCore.Data.Business.Range.Create(mass - massError, mass + massError)}
-                    };
-
-                    settingList.Add(settings);
-                }
-
-                IChromatogramSettings[] allSettings = settingList.ToArray();
-
-                var data = rawFile.GetChromatogramData(allSettings, startScan, endScan);
-
-                // Split the data into the chromatograms
-                var trace = ChromatogramSignal.FromChromatogramData(data);
-
-                using (System.IO.StreamWriter file =
-                new System.IO.StreamWriter(filename))
-                {
-                    file.WriteLine("#R\n");
-
-                    for (int i = 0; i < trace.Length; i++)
-                    {
-                        List<double> tTime = new List<double>();
-                        List<double> tIntensities = new List<double>();
-
-                        for (int j = 0; j < trace[i].Times.Count; j++)
-                        {
-                            //   if (trace[i].Intensities[j] > 0)
-                            {
-                                tTime.Add(trace[i].Times[j]);
-                                tIntensities.Add(trace[i].Intensities[j]);
-                            }
-
-                        }
-
-                        file.WriteLine("e$chromatogram[[{0}]] <- list(", i + 1);
-                        file.WriteLine("\tfilter = '{0}',", filter);
-                        file.WriteLine("\tppm = {0},", ppmError);
-                        file.WriteLine("\tmass = {0},", massList[i]);
-                        file.WriteLine("\ttimes = c(" + string.Join(",", tTime) + "),");
-                        file.WriteLine("\tintensities = c(" + string.Join(",", tIntensities) + ")");
-                        file.WriteLine(");");
-                    }
-                }
-            }
+            });
+            // `version` option
+            VersionOption versionOption = new VersionOption("--version"){
+                Description = "Prints the rawrr version."
+            };
+            // Add the commands as sub-commands to the root command
+            rootCommand.Subcommands.Add(headerRCommand);
+            rootCommand.Subcommands.Add(gradientCommand);
+            rootCommand.Subcommands.Add(trailerCommand);
+            rootCommand.Subcommands.Add(filterCommand);
+            rootCommand.Subcommands.Add(isValidFilterCommand);
+            rootCommand.Subcommands.Add(getFiltersCommand);
+            rootCommand.Subcommands.Add(chromatogramCommand);
+            rootCommand.Subcommands.Add(indexCommand);
+            rootCommand.Subcommands.Add(scansCommand);
+            rootCommand.Subcommands.Add(bareboneCommand);
+            rootCommand.Subcommands.Add(xicCommand);
+            rootCommand.Options.Add(versionOption);
+            // Parse whatever command has come in and execute it.
+            ParseResult parseResult = rootCommand.Parse(args);
+            Console.WriteLine(parseResult);
+            parseResult.Invoke();
         }
     }
+}
