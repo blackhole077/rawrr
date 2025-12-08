@@ -7,6 +7,30 @@ using ThermoFisher.CommonCore.Data.Business;
 
 public static class FileIOHelper
 {
+    public static void WriteRListOfLists(StreamWriter file, string listName, List<List<(string key, object value)>> listOfLists)
+    {
+        file.WriteLine($"{listName} <- list()");
+        for (int i = 0; i < listOfLists.Count; i++)
+        {
+            WriteRList(file, $"{listName}[[{i + 1}]]", listOfLists[i]);
+        }
+    }
+
+    public static void WriteRList(StreamWriter file, string listName, List<(string key, object value)> entries)
+    {
+        file.WriteLine($"{listName} <- list()");
+        file.Write($"{listName} <- list(");
+        for (int i = 0; i < entries.Count; i++)
+        {
+            file.Write($"`{entries[i].key}` = '{entries[i].value}'");
+            if (i < entries.Count - 1)
+            {
+                file.Write(", ");
+            }
+        }
+        file.WriteLine(")");
+    }
+
     public static StreamWriter CreateStreamWriter(string filePath)
     {
         return new System.IO.StreamWriter(filePath, false);

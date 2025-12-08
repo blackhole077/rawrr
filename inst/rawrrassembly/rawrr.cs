@@ -714,6 +714,72 @@ namespace FGCZExtensions
                 }
             }
         }
+        public static void ExtractLCPressureFromAnalogToDigitalCard(this IRawDataPlus rawFile, string outputFileName)
+        {
+            int numberOfAnalogToDigitalDevices = rawFile.GetInstrumentCountOfType(Device.Analog);
+            List<List<(string key, object value)>> allLiquidChromatographyPressures = new List<List<(string key, object value)>>();
+            for (int instrumentIndex = 1; instrumentIndex < numberOfAnalogToDigitalDevices + 1; instrumentIndex++)
+            {
+                rawFile.SelectInstrument(Device.Analog, instrumentIndex); // Get Analog-to-Digital card data
+                var runHeader = rawFile.RunHeaderEx;
+                int startScan = runHeader.FirstSpectrum;
+                int endScan = runHeader.LastSpectrum;
+                InstrumentData analogToDigitalCardInfo = rawFile.GetInstrumentData();
+                string[] analogToDigitalCardChannelLabels = analogToDigitalCardInfo.ChannelLabels;
+                List<(string key, object value)> liquidChromatographyPressures = new List<(string key, object value)>();
+                if (analogToDigitalCardInfo.ChannelLabels != null && analogToDigitalCardInfo.ChannelLabels.Length > 0)
+                {
+                    for (int i = 0; i < analogToDigitalCardInfo.ChannelLabels.Length; i++)
+                    {
+                        string label = analogToDigitalCardInfo.ChannelLabels[i];
+                        Console.WriteLine($"Channel {i + 1}: {label}");
+
+                        // Check if this channel is pressure-related
+                        if (label.ToLower().Contains("pressure"))
+                        {
+                            TraceType traceType = TraceType.StartPCA2DChromatogramTraces + (i + 1);
+                            ChromatogramTraceSettings settings = new ChromatogramTraceSettings(traceType);
+                            IChromatogramData data = rawFile.GetChromatogramData(
+                                new IChromatogramSettings[] { settings },
+                                rawFile.RunHeaderEx.FirstSpectrum,
+                                rawFile.RunHeaderEx.LastSpectrum
+                            );
+                            // Convert to signal for easier access
+                            ChromatogramSignal[] traces = ChromatogramSignal.FromChromatogramData(data);
+                            // Access the pressure data
+                            if (traces != null && traces.Length > 0)
+                            {
+                                foreach (ChromatogramSignal trace in traces)
+                                {
+                                    for (int j = 0; j < trace.Length; j++)
+                                    {
+                                        liquidChromatographyPressures.Add(($"Time", trace.Times[j]));
+                                        liquidChromatographyPressures.Add(($"Pressure", trace.Intensities[j]));
+                                    }
+                                    allLiquidChromatographyPressures.Add(liquidChromatographyPressures);
+                                }
+                            }
+                        }
+                    }
+                }
+                // Write out information we've gathered
+                if (string.IsNullOrEmpty(outputFileName))
+                {
+                    // write to console
+                    for (int i = 0; i < allLiquidChromatographyPressures.Count; i++)
+                    {
+                        Console.WriteLine(string.Join("\n", allLiquidChromatographyPressures[i].Select(entry => $"{entry.key}: {entry.value}")));
+                    }
+                }
+                else
+                {
+                    using (var file = FileIOHelper.CreateStreamWriter(outputFileName))
+                    {
+                        FileIOHelper.WriteRListOfLists(file, "LCPressures", allLiquidChromatographyPressures);
+                    }
+                }
+            }
+        }
     } // end IRawDataPlusExtension class
 } // end FGCZExtensions namespace
 
@@ -905,23 +971,18 @@ namespace FGCZ_Raw
 
         private static void Main(string[] args)
         {
-            // This local variable controls if the AnalyzeAllScans method is called
-            // bool analyzeScans = false;
             const string rawrrVersion = "1.17.2";
-            // `headerR` command and arguments
             Argument<string> inputRawFileArg = new Argument<string>("inputfile")
             {
                 Description = "Input RAW file"
             };
             Argument<string> outputFileArg = new Argument<string>("outputfile")
             {
-                Description = "Output file"
+                Description = "Output file",
+                DefaultValueFactory = _ => null
             };
-            // Parse command-line arguments
             RootCommand rootCommand = new RootCommand("rawrr - A .NET library and command line tool to access Thermo Fisher Scientific RAW files.");
-            rootCommand.Arguments.Add(inputRawFileArg);
-            rootCommand.Arguments.Add(outputFileArg);
-
+            // `headerR` command and arguments
             Command headerRCommand = new Command("headerR", "Writes the raw file's meta data as R code to a file.");
             headerRCommand.Arguments.Add(inputRawFileArg);
             headerRCommand.Arguments.Add(outputFileArg);
@@ -1224,6 +1285,19 @@ namespace FGCZ_Raw
                 var seqFile = FileIOHelper.CreateSequenceFile(inputfile);
                 ExtractSampleAndMethodFromSequenceFile(seqFile);
             });
+            // `getAnalogDigitalInfo` command and arguments
+            Command getAnalogDigitalInfoCommand = new Command("getAnalogDigitalInfo", "Prints analog to digital info as csv.");
+            getAnalogDigitalInfoCommand.Arguments.Add(inputRawFileArg);
+            getAnalogDigitalInfoCommand.Arguments.Add(outputFileArg);
+            getAnalogDigitalInfoCommand.SetAction((ParseResult parseResult) =>
+            {
+                string inputfile = parseResult.GetValue(inputRawFileArg);
+                string outputFile = parseResult.GetValue(outputFileArg);
+                using (var rawFile = FileIOHelper.CreateRawDataPlus(inputfile))
+                {
+                    rawFile.ExtractLCPressureFromAnalogToDigitalCard(outputFile);
+                }
+            });
             // `version` option
             VersionOption versionOption = new VersionOption("--version")
             {
@@ -1243,6 +1317,7 @@ namespace FGCZ_Raw
             rootCommand.Subcommands.Add(xicCommand);
             rootCommand.Subcommands.Add(getTuneLogsCommand);
             rootCommand.Subcommands.Add(extractSampleMethodCommand);
+            rootCommand.Subcommands.Add(getAnalogDigitalInfoCommand);
             rootCommand.Options.Add(versionOption);
             // Parse whatever command has come in and execute it.
             ParseResult parseResult = rootCommand.Parse(args);
