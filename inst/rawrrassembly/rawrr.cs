@@ -606,78 +606,6 @@ namespace FGCZExtensions
 
             return;
         }
-        /// <summary>
-        /// Extracts LC gradient information from the instrument method
-        /// </summary>
-        public static void ExtractLCGradient(this IRawDataPlus rawFile, string filename)
-        {
-            try
-            {
-                rawFile.SelectInstrument(Device.MS, 1); // Get Mass Spectrometer data
-                // Get the instrument method - typically instrument 0 is the LC
-                var instrumentMethod = rawFile.GetInstrumentMethod(0);
-                var gradientFileContents = new List<string>();
-
-                gradientFileContents.Add("#R\n");
-                gradientFileContents.Add("e$gradient <- list()\n");
-
-                // The instrument method is typically in XML or plain text format
-                // Parse the method string to extract gradient information
-                var methodText = instrumentMethod.ToString();
-
-                // Use regex patterns to extract gradient table information
-                var timestampPattern = @"Time\s*[:=]\s*([\d.]+)";
-                var percentBPattern = @"%B\s*[:=]\s*([\d.]+)";
-                var flowRatePattern = @"Flow\s*[:=]\s*([\d.]+)";
-                var curvePattern = @"Curve\s*[:=]\s*(\d+)";
-
-                var lines = methodText.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                int gradientIndex = 1;
-
-                foreach (var line in lines)
-                {
-                    var timeMatch = System.Text.RegularExpressions.Regex.Match(line, timestampPattern);
-                    var percentBMatch = System.Text.RegularExpressions.Regex.Match(line, percentBPattern);
-                    var flowMatch = System.Text.RegularExpressions.Regex.Match(line, flowRatePattern);
-                    var curveMatch = System.Text.RegularExpressions.Regex.Match(line, curvePattern);
-
-                    if (timeMatch.Success || percentBMatch.Success || flowMatch.Success)
-                    {
-                        gradientFileContents.Add($"e$gradient[[{gradientIndex}]] <- list(");
-
-                        if (timeMatch.Success)
-                            gradientFileContents.Add($"\ttimestamp = {timeMatch.Groups[1].Value},");
-                        else
-                            gradientFileContents.Add("\ttimestamp = NA,");
-
-                        if (percentBMatch.Success)
-                            gradientFileContents.Add($"\tpercentB = {percentBMatch.Groups[1].Value},");
-                        else
-                            gradientFileContents.Add("\tpercentB = NA,");
-
-                        if (flowMatch.Success)
-                            gradientFileContents.Add($"\tflowRate = {flowMatch.Groups[1].Value},");
-                        else
-                            gradientFileContents.Add("\tflowRate = NA,");
-
-                        if (curveMatch.Success)
-                            gradientFileContents.Add($"\tcurve = {curveMatch.Groups[1].Value}");
-                        else
-                            gradientFileContents.Add("\tcurve = NA");
-
-                        gradientFileContents.Add(")");
-                        gradientIndex++;
-                    }
-                }
-
-                gradientFileContents.Add($"\ne$gradient$length <- {gradientIndex - 1}");
-                FileIOHelper.WriteTextToFile(filename, string.Join("\n", gradientFileContents));
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"Error extracting LC gradient: {ex.Message}");
-            }
-        }
 
         public static void GetTuneLogs(this IRawDataPlus rawFile)
         {
@@ -989,19 +917,6 @@ namespace FGCZ_Raw
                     rawFile.GenerateHeaderInformationAsRCode(outputFile);
                 }
             });
-            // `gradient` command and arguments
-            Command gradientCommand = new Command("gradient", "Extracts LC gradient information from the instrument method as R code to a file.");
-            gradientCommand.Arguments.Add(inputRawFileArg);
-            gradientCommand.Arguments.Add(outputFileArg);
-            gradientCommand.SetAction((ParseResult parseResult) =>
-            {
-                string inputFile = parseResult.GetValue(inputRawFileArg);
-                string outputFile = parseResult.GetValue(outputFileArg);
-                using (var rawFile = FileIOHelper.CreateRawDataPlus(inputFile))
-                {
-                    rawFile.ExtractLCGradient(outputFile);
-                }
-            });
             // `trailer` command and arguments
             Option<string> trailerOutputFile = new Option<string>("--output")
             {
@@ -1306,7 +1221,6 @@ namespace FGCZ_Raw
             };
             // Add the commands as sub-commands to the root command
             rootCommand.Subcommands.Add(headerRCommand);
-            rootCommand.Subcommands.Add(gradientCommand);
             rootCommand.Subcommands.Add(trailerCommand);
             rootCommand.Subcommands.Add(filterCommand);
             rootCommand.Subcommands.Add(isValidFilterCommand);
