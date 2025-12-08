@@ -7,30 +7,6 @@ using ThermoFisher.CommonCore.Data.Business;
 
 public static class FileIOHelper
 {
-    public static void WriteRListOfLists(StreamWriter file, string listName, List<List<(string key, object value)>> listOfLists)
-    {
-        file.WriteLine($"{listName} <- list()");
-        for (int i = 0; i < listOfLists.Count; i++)
-        {
-            WriteRList(file, $"{listName}[[{i + 1}]]", listOfLists[i]);
-        }
-    }
-
-    public static void WriteRList(StreamWriter file, string listName, List<(string key, object value)> entries)
-    {
-        file.WriteLine($"{listName} <- list()");
-        file.Write($"{listName} <- list(");
-        for (int i = 0; i < entries.Count; i++)
-        {
-            file.Write($"`{entries[i].key}` = '{entries[i].value}'");
-            if (i < entries.Count - 1)
-            {
-                file.Write(", ");
-            }
-        }
-        file.WriteLine(")");
-    }
-
     public static StreamWriter CreateStreamWriter(string filePath)
     {
         return new System.IO.StreamWriter(filePath, false);
@@ -41,27 +17,6 @@ public static class FileIOHelper
         using (var file = CreateStreamWriter(filePath))
         {
             file.Write(content);
-        }
-    }
-
-    public static void WriteInfoLine(StreamWriter file, string key, object value)
-    {
-        file.WriteLine($"e$info$`{key}` <- '{value}'");
-    }
-
-    public static void WriteInfoLines(StreamWriter file, List<(string key, object value)> entries)
-    {
-        foreach (var entry in entries)
-        {
-            WriteInfoLine(file, entry.key, entry.value);
-        }
-    }
-
-    public static void WriteUserText(StreamWriter file, string[] userText)
-    {
-        for (int i = 0; i < Math.Min(userText.Length, 5); i++)
-        {
-            WriteInfoLine(file, $"User text {i}", userText[i]);
         }
     }
 

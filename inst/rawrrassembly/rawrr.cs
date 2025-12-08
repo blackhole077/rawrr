@@ -121,7 +121,7 @@ namespace FGCZExtensions
                 instrumentInfoEntries.Add(("Units", instrumentData.Units));
                 instrumentInfoEntries.Add(("Mass resolution", $"{runHeader.MassResolution:F3}"));
                 // Instrument methods
-                List<string> instrumentMethods = WriteInstrumentMethods(file, rawFile);
+                List<(string name, object value)> instrumentMethods = WriteInstrumentMethods(rawFile);
 
                 // Scan information
                 int firstScanNumber = runHeader.FirstSpectrum;
@@ -143,19 +143,27 @@ namespace FGCZExtensions
                 scanInfoEntries.Add(("Total number of filters", rawFile.GetFilters().Count));
 
                 // Write out information we've gathered
-                FileIOHelper.WriteInfoLines(file, fileInfoEntries);
-                FileIOHelper.WriteInfoLines(file, instrumentInfoEntries);
-                file.WriteLine(string.Join("", instrumentMethods));
-                FileIOHelper.WriteInfoLines(file, scanInfoEntries);
-
-                FileIOHelper.WriteInfoLines(file, GenerateSampleInfo(file, sampleInfo));
-
+                List<List<(string key, object value)>> allInfoEntries = new List<List<(string key, object value)>>()
+                    {
+                        fileInfoEntries,
+                        instrumentInfoEntries,
+                        instrumentMethods,
+                        scanInfoEntries,
+                        GenerateSampleInfo(sampleInfo),
+                    };
+                string rCode = RCodeWriter.WriteRListOfLists("e$info", allInfoEntries, new List<string> { "File information", "Instrument information", "Instrument methods", "Scan information", "Sample information" });
                 // User text
-                FileIOHelper.WriteUserText(file, sampleInfo.UserText);
+                for (int i = 0; i < sampleInfo.UserText.Length; i++)
+                {
+                    string key = $"e$info$`User text {i + 1}`";
+                    string value = sampleInfo.UserText[i];
+                    rCode += RCodeWriter.WriteRVariable(key, value);
+                }
+                file.WriteLine(rCode);
             }
         }
 
-        private static List<(string key, object value)> GenerateSampleInfo(StreamWriter file, ISampleInformation sampleInfo)
+        private static List<(string key, object value)> GenerateSampleInfo(ISampleInformation sampleInfo)
         {
             var entries = new List<(string key, object value)>();
             entries.Add(("Sample name", sampleInfo.SampleName));
@@ -192,9 +200,9 @@ namespace FGCZExtensions
         /// </summary>
         /// <param name="file">The StreamWriter for the output R code file.</param>
         /// <param name="rawFile">The RAW file object containing instrument method information.</param>
-        private static List<string> WriteInstrumentMethods(StreamWriter file, IRawDataPlus rawFile)
+        private static List<(string name, object value)> WriteInstrumentMethods(IRawDataPlus rawFile)
         {
-            var instrumentMethods = new List<string>();
+            var instrumentMethodsList = new List<(string name, object value)>();
             try
             {
                 rawFile.SelectInstrument(Device.MS, 1); // Get Mass Spectrometer data
@@ -204,8 +212,7 @@ namespace FGCZExtensions
                 // Get the number of instrument methods
                 int methodCount = rawFile.InstrumentMethodsCount;
 
-                instrumentMethods.Add($"e$info$`Number of instrument methods` <- {methodCount}\n");
-                instrumentMethods.Add("e$info$`Instrument methods` <- list()\n");
+                instrumentMethodsList.Add(("Number of instrument methods", methodCount));
 
                 for (int i = 0; i < methodCount; i++)
                 {
@@ -220,15 +227,15 @@ namespace FGCZExtensions
                         .Replace("\r", "")
                         .Replace("'", "\\'");
 
-                    instrumentMethods.Add($"e$info$`Instrument methods`[[{i + 1}]] <- list(\n\tname = '{instrumentName}',\n\tmethod = '{methodContent}'\n)\n");
+                    instrumentMethodsList.Add((instrumentName, methodContent));
                 }
             }
             catch (Exception ex)
             {
                 // If method extraction fails, log it but don't crash
-                instrumentMethods.Add($"# Warning: Could not extract instrument methods: {ex.Message}\n");
+                instrumentMethodsList.Add(("Warning: Could not extract instrument methods", ex.Message));
             }
-            return instrumentMethods;
+            return instrumentMethodsList;
         }
 
         public static void GetIndex(this IRawDataPlus rawFile)
@@ -776,7 +783,8 @@ namespace FGCZExtensions
                 {
                     using (var file = FileIOHelper.CreateStreamWriter(outputFileName))
                     {
-                        FileIOHelper.WriteRListOfLists(file, "LCPressures", allLiquidChromatographyPressures);
+                        string rCode = RCodeWriter.WriteRListOfLists("LCPressures", allLiquidChromatographyPressures);
+                        file.WriteLine(rCode);
                     }
                 }
             }
@@ -983,7 +991,6 @@ namespace FGCZ_Raw
 
         private static void Main(string[] args)
         {
-            const string rawrrVersion = "1.17.2";
             Argument<string> inputRawFileArg = new Argument<string>("inputfile")
             {
                 Description = "Input RAW file"
@@ -1297,11 +1304,11 @@ namespace FGCZ_Raw
                 var seqFile = FileIOHelper.CreateSequenceFile(inputfile);
                 ExtractSampleAndMethodFromSequenceFile(seqFile);
             });
-            // `getAnalogDigitalInfo` command and arguments
-            Command getAnalogDigitalInfoCommand = new Command("getAnalogDigitalInfo", "Prints analog to digital info as csv.");
-            getAnalogDigitalInfoCommand.Arguments.Add(inputRawFileArg);
-            getAnalogDigitalInfoCommand.Arguments.Add(outputFileArg);
-            getAnalogDigitalInfoCommand.SetAction((ParseResult parseResult) =>
+            // `get-lc-pressure` command and arguments
+            Command getLCPressureCommand = new Command("get-lc-pressure", "Fetches LC Pressure values and exports them as R List.");
+            getLCPressureCommand.Arguments.Add(inputRawFileArg);
+            getLCPressureCommand.Arguments.Add(outputFileArg);
+            getLCPressureCommand.SetAction((ParseResult parseResult) =>
             {
                 string inputfile = parseResult.GetValue(inputRawFileArg);
                 string outputFile = parseResult.GetValue(outputFileArg);
@@ -1338,7 +1345,7 @@ namespace FGCZ_Raw
             rootCommand.Subcommands.Add(xicCommand);
             rootCommand.Subcommands.Add(getTuneLogsCommand);
             rootCommand.Subcommands.Add(extractSampleMethodCommand);
-            rootCommand.Subcommands.Add(getAnalogDigitalInfoCommand);
+            rootCommand.Subcommands.Add(getLCPressureCommand);
             rootCommand.Subcommands.Add(extractMethodInfoCommand);
             rootCommand.Options.Add(versionOption);
             // Parse whatever command has come in and execute it.
