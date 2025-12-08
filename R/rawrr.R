@@ -120,7 +120,7 @@ Please check the debug files:\nstderr\t=\t%s\nstdout\t=\t%s\ninput\t=\t%s\noutpu
     
     
     e <- new.env()
-    try(source(tfo, local = TRUE), silent = TRUE)
+    try(source(tfo, local = e), silent = TRUE)
     
     if (length(names(e)) == 0){
       errmsg <- sprintf("Parsing the output of '%s' failed for an unknown reason.
