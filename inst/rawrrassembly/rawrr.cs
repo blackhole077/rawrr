@@ -67,12 +67,12 @@ namespace FGCZExtensions
     /// <summary>
     /// utilize the new ThermoFisher RawFileReader
     /// </summary>
-    public static class IRawDataPlusExtension
+    public static partial class IRawDataPlusExtension
     {
 
         /// <summary>
         /// Generates an R script containing header information extracted from a Thermo RAW file.
-        /// The function writes metadata to the specified file in R code format, populating the <c>e$info</c> list.
+        /// The function writes metadata to the specified file in R code format, populating the <c>info</c> list.
         ///
         /// The extracted metadata includes:
         /// <list type="bullet">
@@ -86,61 +86,28 @@ namespace FGCZExtensions
         /// </summary>
         /// <param name="rawFile">The RAW file object to extract metadata from.</param>
         /// <param name="filename">The path to the output file where the R code will be written.</param>
-        public static void GenerateHeaderInformationAsRCode(this IRawDataPlus rawFile, string filename)
+        public static void GenerateHeaderInformationAsRCode(this IRawDataPlus rawFile, string filename, Device device = Device.MS, int deviceNumber = 1)
         {
             using (var file = FileIOHelper.CreateStreamWriter(filename))
             {
-                List<(string key, object value)> fileInfoEntries = new List<(string key, object value)>();
-                List<(string key, object value)> instrumentInfoEntries = new List<(string key, object value)>();
-                List<(string key, object value)> scanInfoEntries = new List<(string key, object value)>();
-                file.WriteLine("#R\n");
-                file.WriteLine("e$info <- list()\n");
 
                 // Need to select instrument before getting instrument data
-                rawFile.SelectInstrument(Device.MS, 1); // Get Mass Spectrometer data
-                var fileHeader = rawFile.FileHeader;
-                var instrumentData = rawFile.GetInstrumentData();
-                var runHeader = rawFile.RunHeaderEx;
-                var sampleInfo = rawFile.SampleInformation;
-
+                rawFile.SelectInstrument(device, deviceNumber);
+                IFileHeader fileHeader = rawFile.FileHeader;
+                IRunHeader runHeader = rawFile.RunHeaderEx;
+                ISampleInformation sampleInfo = rawFile.SampleInformation;
+                InstrumentData instrumentData = rawFile.GetInstrumentData();
                 // File information
-
-                fileInfoEntries.Add(("RAW file", Path.GetFileName(rawFile.FileName)));
-                fileInfoEntries.Add(("RAW file version", fileHeader.Revision));
-                fileInfoEntries.Add(("Creation date", fileHeader.CreationDate));
-                fileInfoEntries.Add(("Operator", fileHeader.WhoCreatedId));
-                fileInfoEntries.Add(("Number of instruments", rawFile.InstrumentCount));
-                fileInfoEntries.Add(("Description", fileHeader.FileDescription));
-
+                List<(string key, object value)> fileInfoEntries = ExtractFileHeaderData(rawFile);
                 // Instrument information
-                instrumentInfoEntries.Add(("Instrument model", instrumentData.Model));
-                instrumentInfoEntries.Add(("Instrument name", instrumentData.Name));
-                instrumentInfoEntries.Add(("Serial number", instrumentData.SerialNumber));
-                instrumentInfoEntries.Add(("Software version", instrumentData.SoftwareVersion));
-                instrumentInfoEntries.Add(("Firmware version", instrumentData.HardwareVersion));
-                instrumentInfoEntries.Add(("Units", instrumentData.Units));
+                List<(string key, object value)> instrumentInfoEntries = ExtractInstrumentData(rawFile, device, deviceNumber);
                 instrumentInfoEntries.Add(("Mass resolution", $"{runHeader.MassResolution:F3}"));
                 // Instrument methods
-                List<(string name, object value)> instrumentMethods = WriteInstrumentMethods(rawFile);
-
+                List<(string name, object value)> instrumentMethods = ExtractInstrumentMethods(rawFile, device, deviceNumber);
                 // Scan information
-                int firstScanNumber = runHeader.FirstSpectrum;
-                int lastScanNumber = runHeader.LastSpectrum;
-                int ms2Count = Enumerable.Range(firstScanNumber, lastScanNumber - firstScanNumber + 1)
-                .Count(x => rawFile.GetFilterForScanNumber(x).ToString().Contains("Full ms2"));
-
-                scanInfoEntries.Add(("Number of scans", runHeader.SpectraCount));
-                scanInfoEntries.Add(("Number of ms2 scans", ms2Count));
-                scanInfoEntries.Add(("Scan range", $"c({firstScanNumber}, {lastScanNumber})"));
-                scanInfoEntries.Add(("Time range", $"c({runHeader.StartTime:F2}, {runHeader.EndTime:F2})"));
-                scanInfoEntries.Add(("Mass range", $"c({runHeader.LowMass:F4}, {runHeader.HighMass:F4})"));
-
-                // Filter information
-                var firstFilter = rawFile.GetFilterForScanNumber(firstScanNumber);
-                var lastFilter = rawFile.GetFilterForScanNumber(lastScanNumber);
-                scanInfoEntries.Add(("Scan filter (first scan)", firstFilter.ToString()));
-                scanInfoEntries.Add(("Scan filter (last scan)", lastFilter.ToString()));
-                scanInfoEntries.Add(("Total number of filters", rawFile.GetFilters().Count));
+                List<(string key, object value)> scanInfoEntries = ExtractScanData(rawFile, device, deviceNumber);
+                // Sample information and user text
+                List<(string key, object value)> sampleInfoEntries = ExtractSampleInfo(sampleInfo);
 
                 // Write out information we've gathered
                 List<List<(string key, object value)>> allInfoEntries = new List<List<(string key, object value)>>()
@@ -149,93 +116,11 @@ namespace FGCZExtensions
                         instrumentInfoEntries,
                         instrumentMethods,
                         scanInfoEntries,
-                        GenerateSampleInfo(sampleInfo),
+                        sampleInfoEntries
                     };
-                string rCode = RCodeWriter.WriteRListOfLists("e$info", allInfoEntries, new List<string> { "File information", "Instrument information", "Instrument methods", "Scan information", "Sample information" });
-                // User text
-                for (int i = 0; i < sampleInfo.UserText.Length; i++)
-                {
-                    string key = $"e$info$`User text {i + 1}`";
-                    string value = sampleInfo.UserText[i];
-                    rCode += RCodeWriter.WriteRVariable(key, value);
-                }
+                string rCode = RCodeWriter.WriteRListOfLists("info", allInfoEntries, new List<string> { "File information", "Instrument information", "Instrument methods", "Scan information", "Sample information" });
                 file.WriteLine(rCode);
             }
-        }
-
-        private static List<(string key, object value)> GenerateSampleInfo(ISampleInformation sampleInfo)
-        {
-            var entries = new List<(string key, object value)>();
-            entries.Add(("Sample name", sampleInfo.SampleName));
-            entries.Add(("Sample id", sampleInfo.SampleId));
-            entries.Add(("Sample type", sampleInfo.SampleType));
-            entries.Add(("Sample comment", sampleInfo.Comment));
-            entries.Add(("Sample vial", sampleInfo.Vial));
-            entries.Add(("Sample volume", sampleInfo.SampleVolume));
-            entries.Add(("Sample injection volume", sampleInfo.InjectionVolume));
-            entries.Add(("Sample row number", sampleInfo.RowNumber));
-            entries.Add(("Sample dilution factor", sampleInfo.DilutionFactor));
-            entries.Add(("Sample barcode", sampleInfo.Barcode));
-            return entries;
-        }
-
-        /// <summary>
-        /// Extracts and writes instrument method information to the output R code file.
-        ///
-        /// This method retrieves all instrument methods from the RAW file and writes them as an R list structure.
-        /// Each instrument method includes the instrument's friendly name (or a fallback index-based name) and
-        /// the complete method content. The output is formatted as nested R lists for easy parsing.
-        ///
-        /// The method handles multiple instruments within a single RAW file (e.g., LC pump, MS detector,
-        /// autosampler) and writes them in the format:
-        /// <code>
-        /// e$info$`Instrument methods`[[1]] &lt;- list(
-        ///     name = 'LC Pump',
-        ///     method = '...'
-        /// )
-        /// </code>
-        ///
-        /// Special characters in method content (backslashes, newlines, quotes) are properly escaped
-        /// for R string compatibility.
-        /// </summary>
-        /// <param name="file">The StreamWriter for the output R code file.</param>
-        /// <param name="rawFile">The RAW file object containing instrument method information.</param>
-        private static List<(string name, object value)> WriteInstrumentMethods(IRawDataPlus rawFile)
-        {
-            var instrumentMethodsList = new List<(string name, object value)>();
-            try
-            {
-                rawFile.SelectInstrument(Device.MS, 1); // Get Mass Spectrometer data
-                // Get all instrument friendly names from the instrument method
-                var instrumentFriendlyNames = rawFile.GetAllInstrumentFriendlyNamesFromInstrumentMethod();
-
-                // Get the number of instrument methods
-                int methodCount = rawFile.InstrumentMethodsCount;
-
-                instrumentMethodsList.Add(("Number of instrument methods", methodCount));
-
-                for (int i = 0; i < methodCount; i++)
-                {
-                    // Use friendly name if available, otherwise fall back to index-based name
-                    string instrumentName = i < instrumentFriendlyNames.Count()
-                        ? instrumentFriendlyNames[i]
-                        : $"Instrument_{i}";
-
-                    string methodContent = rawFile.GetInstrumentMethod(i)
-                        .Replace("\\", "/")
-                        .Replace("\n", "\\n")
-                        .Replace("\r", "")
-                        .Replace("'", "\\'");
-
-                    instrumentMethodsList.Add((instrumentName, methodContent));
-                }
-            }
-            catch (Exception ex)
-            {
-                // If method extraction fails, log it but don't crash
-                instrumentMethodsList.Add(("Warning: Could not extract instrument methods", ex.Message));
-            }
-            return instrumentMethodsList;
         }
 
         public static void GetIndex(this IRawDataPlus rawFile)
