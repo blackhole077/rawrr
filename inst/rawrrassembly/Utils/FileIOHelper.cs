@@ -40,7 +40,7 @@ public static class FileIOHelper
             WriteInfoLine(file, $"User text {i}", userText[i]);
         }
     }
-    // Need to figure out how to fix CS0246 error for IRawDataPlus
+
     public static IRawDataPlus CreateRawDataPlus(string filePath)
     {
         IRawDataPlus rawFile = RawFileReaderAdapter.FileFactory(filePath);
@@ -65,5 +65,23 @@ public static class FileIOHelper
         }
 
         return rawFile;
+    }
+
+    public static ISequenceFileAccess CreateSequenceFile(string filePath)
+    {
+        ISequenceFileAccess seqFile = SequenceFileReaderFactory.ReadFile(filePath);
+        if (!seqFile.IsOpen || seqFile.IsError)
+        {
+            Console.WriteLine("Unable to access the sequence file using the RawFileReader class!");
+            // Check for any errors in the sequence file
+            if (seqFile.IsError)
+            {
+                Console.WriteLine("Error opening ({0}) - {1}", seqFile.FileError, filePath);
+
+                Environment.Exit(1);
+            }
+        }
+
+        return seqFile;
     }
 }
