@@ -871,6 +871,38 @@ namespace FGCZ_Raw
             }
         }
 
+        private static void ExtractSampleAndMethodFromSequenceFile(ISequenceFileAccess seqFile)
+        {
+            Console.WriteLine("# Sample and Method information from the sequence file:");
+            int sampleCount = seqFile.Samples.Count;
+            for (int i = 0; i < sampleCount; i++)
+            {
+                var sample = seqFile.Samples[i];
+                Console.WriteLine("# Sample {0}: SampleId={1}, SampleName={2}, SampleType={3}, Comment={4}, Vial={5}, InjectionVolume={6}, Barcode={7}, BarcodeStatus={8}, CalibrationLevel={9}, DilutionFactor={10}, InstrumentMethodFile={11}, RawFileName={12}, CalibrationFile={13}, IstdAmount={14}, RowNumber={15}, Path={16}, ProcessingMethodFile={17}, SampleVolume={18}, SampleWeight={19}, UserText={20}",
+                    i + 1,
+                    sample.SampleId,
+                    sample.SampleName,
+                    sample.SampleType,
+                    sample.Comment,
+                    sample.Vial,
+                    sample.InjectionVolume,
+                    sample.Barcode,
+                    sample.BarcodeStatus,
+                    sample.CalibrationLevel,
+                    sample.DilutionFactor,
+                    sample.InstrumentMethodFile,
+                    sample.RawFileName,
+                    sample.CalibrationFile,
+                    sample.IstdAmount,
+                    sample.RowNumber,
+                    sample.Path,
+                    sample.ProcessingMethodFile,
+                    sample.SampleVolume,
+                    sample.SampleWeight,
+                    string.Join(",", sample.UserText));
+            }
+        }
+
         private static void Main(string[] args)
         {
             // This local variable controls if the AnalyzeAllScans method is called
@@ -1183,8 +1215,18 @@ namespace FGCZ_Raw
                     rawFile.GetTuneLogs();
                 }
             });
+            // `extract-sample-method` command
+            Command extractSampleMethodCommand = new Command("extract-sample-method", "Extracts sample and method information from a sequence file.");
+            extractSampleMethodCommand.Arguments.Add(inputRawFileArg);
+            extractSampleMethodCommand.SetAction((ParseResult parseResult) =>
+            {
+                string inputfile = parseResult.GetValue(inputRawFileArg);
+                var seqFile = FileIOHelper.CreateSequenceFile(inputfile);
+                ExtractSampleAndMethodFromSequenceFile(seqFile);
+            });
             // `version` option
-            VersionOption versionOption = new VersionOption("--version"){
+            VersionOption versionOption = new VersionOption("--version")
+            {
                 Description = "Prints the rawrr version."
             };
             // Add the commands as sub-commands to the root command
@@ -1200,6 +1242,7 @@ namespace FGCZ_Raw
             rootCommand.Subcommands.Add(bareboneCommand);
             rootCommand.Subcommands.Add(xicCommand);
             rootCommand.Subcommands.Add(getTuneLogsCommand);
+            rootCommand.Subcommands.Add(extractSampleMethodCommand);
             rootCommand.Options.Add(versionOption);
             // Parse whatever command has come in and execute it.
             ParseResult parseResult = rootCommand.Parse(args);
