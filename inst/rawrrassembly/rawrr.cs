@@ -274,38 +274,22 @@ namespace FGCZExtensions
                     precursorMass = -1;
                 }
 
-                try
-                {
-                    charge = int.Parse(ScanTrailerDict["Charge State:"]);
-                }
-                catch
+                if (!double.TryParse(ScanTrailerDict.GetValueOrDefault("Charge State:", "-1"), out charge))
                 {
                     charge = -1;
                 }
 
-                try
-                {
-                    masterScan = int.Parse(ScanTrailerDict["Master Scan Number:"]);
-                }
-                catch
+                if (!int.TryParse(ScanTrailerDict.GetValueOrDefault("Master Scan Number:", "-1"), out masterScan))
                 {
                     masterScan = -1;
                 }
 
-                try
-                {
-                    dependencyType = int.Parse(ScanTrailerDict["Dependency Type:"]);
-                }
-                catch
+                if (!int.TryParse(ScanTrailerDict.GetValueOrDefault("Dependency Type:", "-1"), out dependencyType))
                 {
                     dependencyType = -1;
                 }
 
-                try
-                {
-                    monoIsotopicMz = Convert.ToDouble(ScanTrailerDict["Monoisotopic M/Z:"]);
-                }
-                catch
+                if (!double.TryParse(ScanTrailerDict.GetValueOrDefault("Monoisotopic M/Z:", "-1"), out monoIsotopicMz))
                 {
                     monoIsotopicMz = -1.0;
                 }
@@ -353,14 +337,11 @@ namespace FGCZExtensions
                     precursorMass = -1;
                 }
 
-                try
-                {
-                    charge = int.Parse(ScanTrailerDict["Charge State:"]);
-                }
-                catch
+                if (!int.TryParse(ScanTrailerDict.GetValueOrDefault("Charge State:", "-1"), out charge))
                 {
                     charge = -1;
                 }
+
                 spectrumFileContents.Add($"e$Spectrum[[{scanNumber}]] <- list(");
                 spectrumFileContents.Add($"\tscan = {scanNumber},");
                 spectrumFileContents.Add($"\tscanType = \"{scanStatistics.ScanType}\",");
@@ -504,20 +485,12 @@ namespace FGCZExtensions
                 foreach (var (key, value) in Enumerable.Range(0, scanTrailer.Length).Select(i => (scanTrailer.Labels[i], scanTrailer.Values[i])))
                 { ScanTrailerDict[key] = value.Trim(); }
 
-                try
-                {
-                    charge = int.Parse(ScanTrailerDict["Charge State:"]);
-                }
-                catch
+                if (!int.TryParse(ScanTrailerDict.GetValueOrDefault("Charge State:", "-1"), out charge))
                 {
                     charge = -1;
                 }
 
-                try
-                {
-                    monoIsotopicMz = Convert.ToDouble(ScanTrailerDict["Monoisotopic M/Z:"]);
-                }
-                catch
+                if (!double.TryParse(ScanTrailerDict.GetValueOrDefault("Monoisotopic M/Z:", "-1"), out monoIsotopicMz))
                 {
                     monoIsotopicMz = -1.0;
                 }
