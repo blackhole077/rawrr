@@ -699,7 +699,8 @@ namespace FGCZExtensions
             }
         }
 
-        public static void GetTuneLogs(this IRawDataPlus rawFile){
+        public static void GetTuneLogs(this IRawDataPlus rawFile)
+        {
             rawFile.SelectInstrument(Device.MS, 1); // Get Mass Spectrometer data
             int tuneLogCount = rawFile.GetTuneDataCount();
             for (int i = 0; i < tuneLogCount; i++)
@@ -966,6 +967,17 @@ namespace FGCZ_Raw
                     sample.SampleVolume,
                     sample.SampleWeight,
                     string.Join(",", sample.UserText));
+            }
+        }
+
+        private static void ExtractInformationFromMethodFile(IInstrumentMethodFileAccess methodFile)
+        {
+            var devices = methodFile.Devices;
+            Console.WriteLine($"Type of devices: {devices.GetType()}");
+            foreach (var deviceEntry in devices)
+            {
+                Console.WriteLine($"Device Key: {deviceEntry.Key}");
+                Console.WriteLine($"MethodText: {deviceEntry.Value.MethodText}");
             }
         }
 
@@ -1298,6 +1310,15 @@ namespace FGCZ_Raw
                     rawFile.ExtractLCPressureFromAnalogToDigitalCard(outputFile);
                 }
             });
+            // `extract-method-info` command and arguments
+            Command extractMethodInfoCommand = new Command("extract-method-info", "Extracts method information from an instrument method file.");
+            extractMethodInfoCommand.Arguments.Add(inputRawFileArg);
+            extractMethodInfoCommand.SetAction((ParseResult parseResult) =>
+            {
+                string inputfile = parseResult.GetValue(inputRawFileArg);
+                var methodFile = FileIOHelper.CreateInstrumentMethodFile(inputfile);
+                ExtractInformationFromMethodFile(methodFile);
+            });
             // `version` option
             VersionOption versionOption = new VersionOption("--version")
             {
@@ -1318,6 +1339,7 @@ namespace FGCZ_Raw
             rootCommand.Subcommands.Add(getTuneLogsCommand);
             rootCommand.Subcommands.Add(extractSampleMethodCommand);
             rootCommand.Subcommands.Add(getAnalogDigitalInfoCommand);
+            rootCommand.Subcommands.Add(extractMethodInfoCommand);
             rootCommand.Options.Add(versionOption);
             // Parse whatever command has come in and execute it.
             ParseResult parseResult = rootCommand.Parse(args);
