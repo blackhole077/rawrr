@@ -223,6 +223,27 @@ readFileHeader <- function(rawfile, stdout = "", stderr = ""){
   e$info
 }
 
+#' Extract tune logs from the RAW file.
+#'
+#' @param rawfile the name of the raw file containing the mass spectrometry data from the Thermo Fisher Scientific instrument.
+#' @inheritParams base::system2
+#' @description This function extracts the tune log information from the instrument stored in the raw file.
+#' @return A list object containing the tune logs extracted from the raw file.
+#'
+#' @export
+#'
+#' @examples
+#' rawrr::sampleFilePath() |> rawrr::getTuneLogs()
+getTuneLogs <- function(rawfile, stdout = "", stderr = ""){
+  
+  .isAssemblyWorking()
+  rawfile <- normalizePath(rawfile)
+  .checkRawFile(rawfile)
+  
+  .rawrrSystem2Source(rawfile, input = NULL, rawrrArgs="getTuneLogs",
+                     stdout = stdout, stderr = stderr) -> e
+  e$tunelogs
+}
 
 #' Extract LC gradient information
 #'
