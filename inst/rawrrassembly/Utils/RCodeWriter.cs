@@ -55,7 +55,9 @@ public static class RCodeWriter
         outputString.Append($"{listName} <- list(");
         for (int i = 0; i < entries.Count; i++)
         {
-            outputString.Append($"`{entries[i].key}` = '{entries[i].value}'");
+            var value = entries[i].value;
+            var formattedValue = value is string ? $"\"{value}\"" : value.ToString();
+            outputString.Append($"`{entries[i].key}` = {formattedValue}");
             if (i < entries.Count - 1)
             {
                 outputString.Append(", ");
@@ -64,9 +66,34 @@ public static class RCodeWriter
         outputString.AppendLine(")");
         return outputString.ToString();
     }
+}
 
-    public static string WriteRVariable(string varName, object value)
+public class RVector<T>
+{
+    List<T> items { get; set; } = new List<T>();
+
+    public static RVector<T> Create(IEnumerable<T> collection)
     {
-        return $"{varName} <- '{value}'\n";
+        RVector<T> vector = new RVector<T>();
+        vector.items.AddRange(collection);
+        return vector;
+    }
+
+    public override string ToString()
+    {
+        StringBuilder outputString = new StringBuilder();
+        outputString.Append("c(");
+        for (int i = 0; i < items.Count; i++)
+        {
+            var value = items[i];
+            var formattedValue = value is string ? $"\"{value}\"" : value.ToString();
+            outputString.Append(formattedValue);
+            if (i < items.Count - 1)
+            {
+                outputString.Append(", ");
+            }
+        }
+        outputString.Append(")");
+        return outputString.ToString();
     }
 }

@@ -67,6 +67,18 @@
   # TODO(cp) check if file name end with ".raw"
 }
 
+.checkMethodFile <- function(methodfile){
+  if (!file.exists(methodfile)){
+    msg <- sprintf("File '%s' does not exist.", methodfile)
+    stop(msg)
+  }
+
+  if (!grepl("\\.meth$", methodfile)){
+    msg <- sprintf("File '%s' does not have the .meth extension.", methodfile)
+    stop(msg)
+  }
+}
+
 .writeRData <-
   function(rawfile, outputfile=paste0(rawfile, ".RData"), tmpdir=tempdir()){
 
@@ -104,7 +116,7 @@
             stop(paste0("No input file '", tfi, "' available!"))
     }
 
-    c(shQuote(rawfile), rawrrArgs, shQuote(tfi), shQuote(tfo)) -> args
+    c(rawrrArgs, shQuote(rawfile), shQuote(tfi), shQuote(tfo)) -> args
     system2(exe,
         args = args,
         stdout = stdout,
@@ -223,57 +235,6 @@ readFileHeader <- function(rawfile, stdout = "", stderr = ""){
   e$info
 }
 
-#' Extract tune logs from the RAW file.
-#'
-#' @param rawfile the name of the raw file containing the mass spectrometry data from the Thermo Fisher Scientific instrument.
-#' @inheritParams base::system2
-#' @description This function extracts the tune log information from the instrument stored in the raw file.
-#' @return A list object containing the tune logs extracted from the raw file.
-#'
-#' @export
-#'
-#' @examples
-#' rawrr::sampleFilePath() |> rawrr::getTuneLogs()
-getTuneLogs <- function(rawfile, stdout = "", stderr = ""){
-  
-  .isAssemblyWorking()
-  rawfile <- normalizePath(rawfile)
-  .checkRawFile(rawfile)
-  
-  .rawrrSystem2Source(rawfile, input = NULL, rawrrArgs="getTuneLogs",
-                     stdout = stdout, stderr = stderr) -> e
-  e$tunelogs
-}
-
-#' Extract LC gradient information
-#'
-#' @param rawfile the name of the raw file containing the mass spectrometry data from the Thermo Fisher Scientific instrument.
-#' @inheritParams base::system2
-#' @description This function extracts LC gradient information from the instrument method stored in the raw file.
-#' @author Tobias Kockmann and Christian Panse 2018, 2019, 2020, 2025.
-#' @references Thermo Fisher Scientific's NewRawfileReader C# code snippets
-#' \url{https://planetorbitrap.com/rawfilereader}.
-#'
-#'
-#' @return A list object containing LC gradient time points, flow rates, and mobile phase composition percentages.
-#'
-#' @export
-#'
-#' @examples
-#' \dontrun{
-#' rawrr::sampleFilePath() |> rawrr::readLCGradient()
-#' }
-readLCGradient <- function(rawfile, stdout = "", stderr = ""){
-
-  .isAssemblyWorking()
-  rawfile <- normalizePath(rawfile)
-  .checkRawFile(rawfile)
-
-  .rawrrSystem2Source(rawfile, input = NULL, rawrrArgs="gradient",
-    stdout = stdout, stderr = stderr) -> e
-  e$gradient
-}
-
 # readIndex-----
 #' Read scan index
 #'
@@ -309,6 +270,62 @@ readIndex <- function (rawfile)
   DF
 }
 
+#' Extract the devices and method information from an Xcalibur instrument method file.
+#'
+#' @param methodFile the name of the method file.
+#' @inheritParams base::system2
+#' @description This function extracts devices and method content from the method file.
+#' @return A list object containing the information extracted from the method file.
+#'
+#' @export
+#'
+#' @examples
+#' rawrr::sampleFilePath() |> rawrr::extractMethodInfo()
+extractMethodInfo <- function(methodFile, stdout = "", stderr = ""){
+  
+  exe <- .rawrrAssembly()
+
+  methodFile <- normalizePath(methodFile)
+  .checkMethodFile(methodFile)
+  methodInfoOutput <- tempfile(fileext = ".txt", tmpdir = tmpdir)
+  tfstdout <- tempfile(fileext = ".stdout", tmpdir = tmpdir)
+  tfstderr <- tempfile(fileext = ".stderr", tmpdir = tmpdir)
+
+  system2args <- c("extract-method-info", shQuote(methodFile), shQuote(methodInfoOutput))
+  rvs <- system2(exe,
+                  args = system2args,
+                  stdout = tfstdout,
+                  stderr = tfstderr)
+  if (isFALSE(file.exists(methodInfoOutput))){
+    errmsg <- sprintf("Output file to read does not exist. '%s' failed for an unknown reason.
+Please check the debug files:\n\t%s\n\t%s\nand the System Requirements",
+                      .rawrrAssembly(),
+                      tfstderr, tfstdout)
+    stop(errmsg)
+  }
+}
+
+#' Extract tune logs from the RAW file.
+#'
+#' @param rawfile the name of the raw file containing the mass spectrometry data from the Thermo Fisher Scientific instrument.
+#' @inheritParams base::system2
+#' @description This function extracts the tune log information from the instrument stored in the raw file.
+#' @return A list object containing the tune logs extracted from the raw file.
+#'
+#' @export
+#'
+#' @examples
+#' rawrr::sampleFilePath() |> rawrr::getTuneLogs()
+getTuneLogs <- function(rawfile, stdout = "", stderr = ""){
+  
+  .isAssemblyWorking()
+  rawfile <- normalizePath(rawfile)
+  .checkRawFile(rawfile)
+  
+  .rawrrSystem2Source(rawfile, input = NULL, rawrrArgs="getTuneLogs",
+                     stdout = stdout, stderr = stderr) -> e
+  e$tunelogs
+}
 
 #' determine scan numbers which match a specified filter
 #'

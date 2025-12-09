@@ -34,7 +34,7 @@ export(tic)
 export(validate_rawrrIndex)
 export(validate_rawrrSpectrum)
 # New Functions
-export(readEnhancedFileHeader)
+export(extractMethodInfo)
 export(getTuneLogs)
 # Imports
 importFrom(grDevices,hcl.colors)
