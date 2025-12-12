@@ -36,6 +36,8 @@ export(validate_rawrrSpectrum)
 # New Functions
 export(extractMethodInfo)
 export(getTuneLogs)
+export(extractSampleInfo)
+export(getLCPressure)
 # Imports
 importFrom(grDevices,hcl.colors)
 importFrom(graphics,legend)

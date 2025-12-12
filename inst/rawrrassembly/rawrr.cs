@@ -475,35 +475,37 @@ namespace FGCZ_Raw
             }
         }
 
-        private static void ExtractSampleAndMethodFromSequenceFile(ISequenceFileAccess seqFile)
+        private static void ExtractSampleAndMethodFromSequenceFile(ISequenceFileAccess seqFile, string outputFileName)
         {
-            Console.WriteLine("# Sample and Method information from the sequence file:");
             int sampleCount = seqFile.Samples.Count;
-            for (int i = 0; i < sampleCount; i++)
+            using (var file = FileIOHelper.CreateStreamWriter(outputFileName))
             {
-                var sample = seqFile.Samples[i];
-                Console.WriteLine("# Sample {0}: SampleId={1}, SampleName={2}, SampleType={3}, Comment={4}, Vial={5}, InjectionVolume={6}, Barcode={7}, BarcodeStatus={8}, CalibrationLevel={9}, DilutionFactor={10}, InstrumentMethodFile={11}, RawFileName={12}, CalibrationFile={13}, IstdAmount={14}, RowNumber={15}, Path={16}, ProcessingMethodFile={17}, SampleVolume={18}, SampleWeight={19}, UserText={20}",
-                    i + 1,
-                    sample.SampleId,
-                    sample.SampleName,
-                    sample.SampleType,
-                    sample.Comment,
-                    sample.Vial,
-                    sample.InjectionVolume,
-                    sample.Barcode,
-                    sample.BarcodeStatus,
-                    sample.CalibrationLevel,
-                    sample.DilutionFactor,
-                    sample.InstrumentMethodFile,
-                    sample.RawFileName,
-                    sample.CalibrationFile,
-                    sample.IstdAmount,
-                    sample.RowNumber,
-                    sample.Path,
-                    sample.ProcessingMethodFile,
-                    sample.SampleVolume,
-                    sample.SampleWeight,
-                    string.Join(",", sample.UserText));
+                for (int i = 0; i < sampleCount; i++)
+                {
+                    var sample = seqFile.Samples[i];
+                    file.WriteLine("# Sample {0}: SampleId={1}, SampleName={2}, SampleType={3}, Comment={4}, Vial={5}, InjectionVolume={6}, Barcode={7}, BarcodeStatus={8}, CalibrationLevel={9}, DilutionFactor={10}, InstrumentMethodFile={11}, RawFileName={12}, CalibrationFile={13}, IstdAmount={14}, RowNumber={15}, Path={16}, ProcessingMethodFile={17}, SampleVolume={18}, SampleWeight={19}, UserText={20}",
+                        i + 1,
+                        sample.SampleId,
+                        sample.SampleName,
+                        sample.SampleType,
+                        sample.Comment,
+                        sample.Vial,
+                        sample.InjectionVolume,
+                        sample.Barcode,
+                        sample.BarcodeStatus,
+                        sample.CalibrationLevel,
+                        sample.DilutionFactor,
+                        sample.InstrumentMethodFile,
+                        sample.RawFileName,
+                        sample.CalibrationFile,
+                        sample.IstdAmount,
+                        sample.RowNumber,
+                        sample.Path,
+                        sample.ProcessingMethodFile,
+                        sample.SampleVolume,
+                        sample.SampleWeight,
+                        string.Join(",", sample.UserText));
+                }
             }
         }
 
@@ -801,7 +803,7 @@ namespace FGCZ_Raw
                 }
             });
             // `getTuneLogs` command and arguments
-            var getTuneLogsCommand = new Command("getTuneLogs", "Retrieves the tune information from the raw file.");
+            var getTuneLogsCommand = new Command("get-tune-logs", "Retrieves the tune information from the raw file.");
             getTuneLogsCommand.Arguments.Add(inputRawFileArg);
             getTuneLogsCommand.SetAction((ParseResult parseResult) =>
             {
@@ -814,11 +816,13 @@ namespace FGCZ_Raw
             // `extract-sample-method` command
             Command extractSampleMethodCommand = new Command("extract-sample-method", "Extracts sample and method information from a sequence file.");
             extractSampleMethodCommand.Arguments.Add(inputRawFileArg);
+            extractSampleMethodCommand.Arguments.Add(outputFileArg);
             extractSampleMethodCommand.SetAction((ParseResult parseResult) =>
             {
                 string inputfile = parseResult.GetValue(inputRawFileArg);
                 var seqFile = FileIOHelper.CreateSequenceFile(inputfile);
-                ExtractSampleAndMethodFromSequenceFile(seqFile);
+                string outputFile = parseResult.GetValue(outputFileArg) ?? "sample_method.txt";
+                ExtractSampleAndMethodFromSequenceFile(seqFile, outputFile);
             });
             // `get-lc-pressure` command and arguments
             Command getLCPressureCommand = new Command("get-lc-pressure", "Fetches LC Pressure values and exports them as R List.");

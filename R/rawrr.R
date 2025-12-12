@@ -305,6 +305,42 @@ Please check the debug files:\n\t%s\n\t%s\nand the System Requirements",
   }
 }
 
+#' Extract the sample information from a sequence file.
+#'
+#' @param sequenceFile the name of the sequence file.
+#' @inheritParams base::system2
+#' @description This function extracts sample information from the sequence file.
+#' @return A list object containing the information extracted from the sequence file.
+#'
+#' @export
+#'
+#' @examples
+#' rawrr::sampleFilePath() |> rawrr::extractSampleInfo()
+extractSampleInfo <- function(sequenceFile, stdout = "", stderr = ""){
+  
+  exe <- .rawrrAssembly()
+
+  sequenceFile <- normalizePath(sequenceFile)
+  .checkSequenceFile(sequenceFile)
+
+  sequenceInfoOutput <- tempfile(fileext = ".txt", tmpdir = tmpdir)
+  tfstdout <- tempfile(fileext = ".stdout", tmpdir = tmpdir)
+  tfstderr <- tempfile(fileext = ".stderr", tmpdir = tmpdir)
+
+  system2args <- c("extract-sample-method", shQuote(sequenceFile), shQuote(sequenceInfoOutput))
+  rvs <- system2(exe,
+                  args = system2args,
+                  stdout = tfstdout,
+                  stderr = tfstderr)
+  if (isFALSE(file.exists(sequenceInfoOutput))){
+    errmsg <- sprintf("Output file to read does not exist. '%s' failed for an unknown reason.
+Please check the debug files:\n\t%s\n\t%s\nand the System Requirements",
+                      .rawrrAssembly(),
+                      tfstderr, tfstdout)
+    stop(errmsg)
+  }
+}
+
 #' Extract tune logs from the RAW file.
 #'
 #' @param rawfile the name of the raw file containing the mass spectrometry data from the Thermo Fisher Scientific instrument.
@@ -322,9 +358,31 @@ getTuneLogs <- function(rawfile, stdout = "", stderr = ""){
   rawfile <- normalizePath(rawfile)
   .checkRawFile(rawfile)
   
-  .rawrrSystem2Source(rawfile, input = NULL, rawrrArgs="getTuneLogs",
+  .rawrrSystem2Source(rawfile, input = NULL, rawrrArgs="get-tune-logs",
                      stdout = stdout, stderr = stderr) -> e
   e$tunelogs
+}
+
+#' Extract LC Pressure information from the RAW file.
+#'
+#' @param rawfile the name of the raw file containing the mass spectrometry data from the Thermo Fisher Scientific instrument.
+#' @inheritParams base::system2
+#' @description This function extracts the LC pressure information from the instrument stored in the raw file.
+#' @return A numeric vector containing the LC pressure values extracted from the raw file.
+#'
+#' @export
+#'
+#' @examples
+#' rawrr::sampleFilePath() |> rawrr::getLCPressure()
+getLCPressure <- function(rawfile, stdout="", stderr=""){
+  
+  .isAssemblyWorking()
+  rawfile <- normalizePath(rawfile)
+  .checkRawFile(rawfile)
+  
+  .rawrrSystem2Source(rawfile, input = NULL, rawrrArgs="get-lc-pressure",
+                     stdout = stdout, stderr = stderr) -> e
+  e$lcpressure
 }
 
 #' determine scan numbers which match a specified filter
@@ -333,7 +391,7 @@ getTuneLogs <- function(rawfile, stdout = "", stderr = ""){
 #' @param filter scan filter string, e.g., \code{ms} or \code{ms2}
 #' @param precision mass precision, default is 10.
 #'
-#' @return a vecntor of integer values.
+#' @return a vector of integer values.
 filter <- function(rawfile, filter = "ms", precision = 10, tmpdir=tempdir()){
   .isAssemblyWorking()
   rawfile <- normalizePath(rawfile)
