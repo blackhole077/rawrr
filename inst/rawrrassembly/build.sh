@@ -100,14 +100,14 @@ echo "Copying project files from $project_folder to $work_folder..."
 # Only copy the necessary files, excluding subdirectories and git files
 cp "$project_folder"/*.cs "$work_folder"/ 2>/dev/null || true
 cp "$project_folder"/Utils/*.cs "$work_folder"/ 2>/dev/null || true
+cp "$project_folder"/Core/*.cs "$work_folder"/ 2>/dev/null || true
 cp "$project_folder"/*.csproj "$work_folder"/ 2>/dev/null || true
 cp "$project_folder"/*.txt "$work_folder"/ 2>/dev/null || true
 cp "$project_folder"/*.md "$work_folder"/ 2>/dev/null || true
 
 echo "Moving to work folder: $work_folder"
 cd "$work_folder"
-# runtimes="linux-x64 osx-x64 win-x64"
-runtimes="linux-x64"
+runtimes="linux-x64 osx-x64 win-x64"
 echo "Building for runtimes: $runtimes"
 for runtime in $runtimes; do
     echo "Publishing for $runtime..."

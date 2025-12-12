@@ -228,7 +228,6 @@ namespace FGCZExtensions
         public static void WriteCentroidSpectrumAsRCode(this IRawDataPlus rawFile, string filename, List<int> scanIdList, Device device = Device.MS, int deviceNumber = 1)
         {
             rawFile.SelectInstrument(device, deviceNumber);
-            int count = 1;
             int charge = -1;
             Dictionary<string, string> ScanTrailerDict;
             var trailerFields = rawFile.GetTrailerExtraHeaderInformation();
