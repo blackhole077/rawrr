@@ -417,17 +417,42 @@ Please check the debug files:\n\t%s\n\t%s\nand the System Requirements",
 #'
 #' @examples
 #' rawrr::sampleFilePath() |> rawrr::getTuneLogs()
-getTuneLogs <- function(rawfile, stdout = "", stderr = ""){
+getTuneLogs <- function(rawfile, stdout = "", stderr = "", tmpdir = tempdir()){
   
   .isAssemblyWorking()
   rawfile <- normalizePath(rawfile)
   .checkRawFile(rawfile)
   
-  .rawrrSystem2Source(rawfile, input = NULL, rawrrArgs="get-tune-logs",
-                     stdout = stdout, stderr = stderr) -> e
-  return(e$tunelogs)
+  exe <- .rawrrAssembly()
+  
+  # Create output file for tune logs
+  tuneLogsOutput <- tempfile(fileext = ".txt", tmpdir = tmpdir)
+  tfstdout <- tempfile(fileext = ".stdout", tmpdir = tmpdir)
+  tfstderr <- tempfile(fileext = ".stderr", tmpdir = tmpdir)
+  
+  # Call assembly with get-tune-logs command
+  system2args <- c("get-tune-logs", shQuote(rawfile), shQuote(tuneLogsOutput))
+  rvs <- system2(exe,
+                 args = system2args,
+                 stdout = if(stdout == "") tfstdout else stdout,
+                 stderr = if(stderr == "") tfstderr else stderr)
+  
+  # Check if output file was created
+  if (isFALSE(file.exists(tuneLogsOutput))){
+    errmsg <- sprintf("Output file does not exist. '%s' failed for an unknown reason.
+Please check the debug files:\n\tstderr\t=\t%s\n\tstdout\t=\t%s",
+                      exe, tfstderr, tfstdout)
+    stop(errmsg)
+  }
+  
+  # Read the tune logs as text
+  tunelogs <- readLines(tuneLogsOutput)
+  
+  # Clean up temp files
+  unlink(c(tuneLogsOutput, tfstdout, tfstderr))
+  
+  return(tunelogs)
 }
-
 #' Extract LC Pressure information from the RAW file.
 #'
 #' @param rawfile the name of the raw file containing the mass spectrometry data from the Thermo Fisher Scientific instrument.
