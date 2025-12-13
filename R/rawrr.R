@@ -284,57 +284,39 @@ readIndex <- function (rawfile)
 extractMethodInfo <- function(methodFile, stdout = "", stderr = "", tmpdir = tempdir()){
   exe <- .rawrrAssembly()
   
-  methodFile <- normalizePath(methodFile)
+  methodFile <- normalizePath(methodFile, winslash = "\\", mustWork = TRUE)
   .checkMethodFile(methodFile)
   
-  # On Windows, convert to short path format to avoid issues with spaces
+  methodInfoOutput <- tempfile(fileext = ".txt", tmpdir = tmpdir)
   if (.Platform$OS.type == "windows") {
-    methodFileOriginal <- methodFile
-    methodFile <- utils::shortPathName(methodFile)
-    message("Converted path:\n  From: ", methodFileOriginal, "\n  To: ", methodFile)
+    methodInfoOutput <- normalizePath(methodInfoOutput, winslash = "\\", mustWork = FALSE)
   }
   
-  methodInfoOutput <- tempfile(fileext = ".txt", tmpdir = tmpdir)
   tfstdout <- tempfile(fileext = ".stdout", tmpdir = tmpdir)
   tfstderr <- tempfile(fileext = ".stderr", tmpdir = tmpdir)
 
-  # Debug output
-  message("Executable: ", exe)
-  message("Method file: ", methodFile)
-  message("Output file: ", methodInfoOutput)
-  
-  system2args <- c("extract-method-info", shQuote(methodFile), shQuote(methodInfoOutput))
-  message("Full command: ", exe, " ", paste(system2args, collapse = " "))
+  # Don't use shQuote on Windows - pass paths directly
+  if (.Platform$OS.type == "windows") {
+    system2args <- c("extract-method-info", methodFile, methodInfoOutput)
+  } else {
+    system2args <- c("extract-method-info", shQuote(methodFile), shQuote(methodInfoOutput))
+  }
   
   rvs <- system2(exe,
                   args = system2args,
                   stdout = tfstdout,
                   stderr = tfstderr)
   
-  message("Return code: ", rvs)
-  
-  if (rvs != 0 || isFALSE(file.exists(methodInfoOutput))) {
-    errmsg <- sprintf("'%s' failed with return code %d.
-Please check the debug files:\n\tstderr\t=\t%s\n\tstdout\t=\t%s\nand the System Requirements",
-                      .rawrrAssembly(), rvs,
-                      tfstderr, tfstdout)
-    
-    # Print stderr/stdout for immediate debugging
-    if (file.exists(tfstderr)) {
-      message("\nSTDERR contents:\n", paste(readLines(tfstderr), collapse = "\n"))
-    }
-    if (file.exists(tfstdout)) {
-      message("\nSTDOUT contents:\n", paste(readLines(tfstdout), collapse = "\n"))
-    }
-    
+  if (isFALSE(file.exists(methodInfoOutput))){
+    errmsg <- sprintf("Output file to read does not exist. '%s' failed.
+Please check the debug files:\n\tstderr\t=\t%s\n\tstdout\t=\t%s",
+                      .rawrrAssembly(), tfstderr, tfstdout)
     stop(errmsg)
   }
   
-  # Read and return the method info (assuming it returns R code)
   source(methodInfoOutput, local = TRUE)
   invisible(get("info"))
 }
-
 #   exe <- .rawrrAssembly()
 
 #   methodFile <- normalizePath(methodFile)
