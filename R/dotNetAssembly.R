@@ -23,8 +23,8 @@
       rvs <- system2(exe, stdout = TRUE)
     }
 
-    # expect that output string
-    if (rvs != "No RAW file specified!"){
+    # expect that output string - collapse to single string or check first element
+    if (!any(rvs == "No RAW file specified!")){
       msg <- ("The 'rawrr.exe' dot Net assembly is not working!")
       FUN(msg)
     }
@@ -32,7 +32,6 @@
     if(interactive()){ stopifnot(.isRawFileReaderLicenseAccepted()) }
     TRUE
   }
-
 
 ## TODO: refactor
 .rawfileReaderDLLs <- function(){
