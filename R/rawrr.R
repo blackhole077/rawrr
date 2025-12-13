@@ -85,8 +85,8 @@
     stop(msg)
   }
 
-  if (!grepl("\\.srf$", sequencefile)){
-    msg <- sprintf("File '%s' does not have the .srf extension.", sequencefile)
+  if (!grepl("\\.sld$", sequencefile)){
+    msg <- sprintf("File '%s' does not have the .sld extension.", sequencefile)
     stop(msg)
   }
 }
