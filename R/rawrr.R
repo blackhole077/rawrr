@@ -282,9 +282,8 @@ readIndex <- function (rawfile)
 #' @examples
 #' rawrr::sampleFilePath() |> rawrr::extractMethodInfo()
 extractMethodInfo <- function(methodFile, stdout = "", stderr = "", tmpdir = tempdir()){
-  
   exe <- .rawrrAssembly()
-
+  
   methodFile <- normalizePath(methodFile)
   .checkMethodFile(methodFile)
   methodInfoOutput <- tempfile(fileext = ".txt", tmpdir = tmpdir)
@@ -292,17 +291,51 @@ extractMethodInfo <- function(methodFile, stdout = "", stderr = "", tmpdir = tem
   tfstderr <- tempfile(fileext = ".stderr", tmpdir = tmpdir)
 
   system2args <- c("extract-method-info", shQuote(methodFile), shQuote(methodInfoOutput))
+  
+  # DEBUG: Print what we're actually calling
+  message("Executable: ", exe)
+  message("Working directory: ", getwd())
+  message("Method file (normalized): ", methodFile)
+  message("Method file exists: ", file.exists(methodFile))
+  message("Output file: ", methodInfoOutput)
+  message("Full command: ", paste(exe, paste(system2args, collapse = " ")))
+  
   rvs <- system2(exe,
                   args = system2args,
                   stdout = tfstdout,
                   stderr = tfstderr)
-  if (isFALSE(file.exists(methodInfoOutput))){
-    errmsg <- sprintf("Output file to read does not exist. '%s' failed for an unknown reason.
-Please check the debug files:\n\t%s\n\t%s\nand the System Requirements",
-                      .rawrrAssembly(),
-                      tfstderr, tfstdout)
-    stop(errmsg)
+  
+  # Show error output
+  message("Return code: ", rvs)
+  if (file.exists(tfstderr)) {
+    message("STDERR contents:")
+    message(paste(readLines(tfstderr), collapse = "\n"))
   }
+  if (file.exists(tfstdout)) {
+    message("STDOUT contents:")
+    message(paste(readLines(tfstdout), collapse = "\n"))
+  }
+
+#   exe <- .rawrrAssembly()
+
+#   methodFile <- normalizePath(methodFile)
+#   .checkMethodFile(methodFile)
+#   methodInfoOutput <- tempfile(fileext = ".txt", tmpdir = tmpdir)
+#   tfstdout <- tempfile(fileext = ".stdout", tmpdir = tmpdir)
+#   tfstderr <- tempfile(fileext = ".stderr", tmpdir = tmpdir)
+
+#   system2args <- c("extract-method-info", shQuote(methodFile), shQuote(methodInfoOutput))
+#   rvs <- system2(exe,
+#                   args = system2args,
+#                   stdout = tfstdout,
+#                   stderr = tfstderr)
+#   if (isFALSE(file.exists(methodInfoOutput))){
+#     errmsg <- sprintf("Output file to read does not exist. '%s' failed for an unknown reason.
+# Please check the debug files:\n\t%s\n\t%s\nand the System Requirements",
+#                       .rawrrAssembly(),
+#                       tfstderr, tfstdout)
+#     stop(errmsg)
+#   }
 }
 
 #' Extract the sample information from a sequence file.
