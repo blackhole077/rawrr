@@ -17,21 +17,21 @@
       FUN(msg)
     }
 
-    # execute rawrr.exe assembly and keep output string
+    # Test assembly by calling it with --version flag
     rvs <-  "?"
     if (file.exists(exe)){
-      rvs <- system2(exe, stdout = TRUE)
+      rvs <- system2(exe, args = "--version", stdout = TRUE, stderr = TRUE)
     }
 
-    # expect that output string - collapse to single string or check first element
-    if (!any(rvs == "No RAW file specified!")){
+    # Should return version information
+    if (length(rvs) == 0){
       msg <- ("The 'rawrr.exe' dot Net assembly is not working!")
       FUN(msg)
     }
 
     if(interactive()){ stopifnot(.isRawFileReaderLicenseAccepted()) }
     TRUE
-  }
+}
 
 ## TODO: refactor
 .rawfileReaderDLLs <- function(){
