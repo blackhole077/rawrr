@@ -253,9 +253,44 @@ namespace FGCZExtensions
 namespace FGCZ_Raw
 {
     using FGCZExtensions;
+    using System.Reflection;
+    using System.Runtime.Loader;
 
     internal static class Program
     {
+        // Add assembly resolver to help load ThermoFisher DLLs
+        static Program()
+        {
+            AssemblyLoadContext.Default.Resolving += OnAssemblyResolving;
+        }
+
+        private static Assembly OnAssemblyResolving(AssemblyLoadContext context, AssemblyName assemblyName)
+        {
+            // Get the directory where rawrr.exe is located
+            string exeDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+            
+            // Try to load the assembly from the same directory
+            string assemblyPath = Path.Combine(exeDir, $"{assemblyName.Name}.dll");
+            
+            Console.WriteLine($"[Assembly Resolver] Looking for: {assemblyName.Name}");
+            Console.WriteLine($"[Assembly Resolver] Trying path: {assemblyPath}");
+            
+            if (File.Exists(assemblyPath))
+            {
+                Console.WriteLine($"[Assembly Resolver] Found and loading: {assemblyPath}");
+                try
+                {
+                    return context.LoadFromAssemblyPath(assemblyPath);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Assembly Resolver] Failed to load: {ex.Message}");
+                }
+            }
+            
+            return null;
+        }
+
         /// <summary>
         /// Reads the base peak chromatogram for the RAW file
         /// </summary>
@@ -838,15 +873,50 @@ namespace FGCZ_Raw
                 }
             });
             // `extract-method-info` command and arguments
-            Command extractMethodInfoCommand = new Command("extract-method-info", "Extracts method information from an instrument method file.");
-            extractMethodInfoCommand.Arguments.Add(inputRawFileArg);
-            extractMethodInfoCommand.Arguments.Add(outputFileArg);
+            Command extractMethodInfoCommand = new Command("extract-method-info", "Extract method information")
+            {
+                inputRawFileArg,
+                outputFileArg
+            };
+
             extractMethodInfoCommand.SetAction((ParseResult parseResult) =>
             {
-                string inputfile = parseResult.GetValue(inputRawFileArg);
-                string outputFile = parseResult.GetValue(outputFileArg) ?? "method_info.txt";
-                var methodFile = FileIOHelper.CreateInstrumentMethodFile(inputfile);
-                ExtractInformationFromMethodFile(methodFile, outputFile);
+                string inputFile = parseResult.GetValue(inputRawFileArg);
+                string outputFile = parseResult.GetValue(outputFileArg);
+                try
+                {
+                    Console.WriteLine($"[Debug] Starting extract-method-info");
+                    Console.WriteLine($"[Debug] Current Directory: {Directory.GetCurrentDirectory()}");
+                    Console.WriteLine($"[Debug] Executable Location: {Assembly.GetExecutingAssembly().Location}");
+                    Console.WriteLine($"[Debug] Method File: {inputFile}");
+                    Console.WriteLine($"[Debug] Output File: {outputFile}");
+                    Console.WriteLine($"[Debug] Method File Exists: {File.Exists(inputFile)}");
+
+                    // List loaded assemblies
+                    Console.WriteLine($"[Debug] Loaded Assemblies:");
+                    foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                    {
+                        Console.WriteLine($"  - {asm.GetName().Name}");
+                    }
+                    
+                    IInstrumentMethodFileAccess methodFile = FileIOHelper.CreateInstrumentMethodFile(inputFile);
+                    ExtractInformationFromMethodFile(methodFile, outputFile);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Error] Exception Type: {ex.GetType().FullName}");
+                    Console.WriteLine($"[Error] Message: {ex.Message}");
+                    Console.WriteLine($"[Error] Stack Trace:\n{ex.StackTrace}");
+                    
+                    if (ex.InnerException != null)
+                    {
+                        Console.WriteLine($"[Error] Inner Exception: {ex.InnerException.GetType().FullName}");
+                        Console.WriteLine($"[Error] Inner Message: {ex.InnerException.Message}");
+                        Console.WriteLine($"[Error] Inner Stack Trace:\n{ex.InnerException.StackTrace}");
+                    }
+                    
+                    Environment.Exit(1);
+                }
             });
             // `version` option
             VersionOption versionOption = new VersionOption("--version")

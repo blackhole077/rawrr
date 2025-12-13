@@ -66,19 +66,37 @@ public static class FileIOHelper
 
     public static IInstrumentMethodFileAccess CreateInstrumentMethodFile(string filePath)
     {
-        IInstrumentMethodFileAccess methodFile = InstrumentMethodReaderFactory.ReadFile(filePath);
-        if (!methodFile.IsOpen || methodFile.IsError)
+        try
         {
-            Console.WriteLine("Unable to access the instrument method file using the RawFileReader class!");
-            // Check for any errors in the method file
-            if (methodFile.IsError)
+            // Normalize path to handle spaces and special characters
+            filePath = Path.GetFullPath(filePath);
+
+            Console.WriteLine($"Attempting to open method file: {filePath}");
+            Console.WriteLine($"File exists: {File.Exists(filePath)}");
+
+            IInstrumentMethodFileAccess methodFile = InstrumentMethodReaderFactory.ReadFile(filePath);
+
+            if (!methodFile.IsOpen || methodFile.IsError)
             {
-                Console.WriteLine("Error opening ({0}) - {1}", methodFile.FileError, filePath);
-
-                Environment.Exit(1);
+                Console.WriteLine("Unable to access the instrument method file using the RawFileReader class!");
+                if (methodFile.IsError)
+                {
+                    Console.WriteLine("Error opening ({0}) - {1}", methodFile.FileError, filePath);
+                    Environment.Exit(1);
+                }
             }
+            return methodFile;
         }
-
-        return methodFile;
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Exception while opening method file: {ex.GetType().Name}");
+            Console.WriteLine($"Message: {ex.Message}");
+            if (ex.InnerException != null)
+            {
+                Console.WriteLine($"Inner exception: {ex.InnerException.Message}");
+            }
+            Console.WriteLine($"Stack trace: {ex.StackTrace}");
+            throw;
+        }
     }
 }

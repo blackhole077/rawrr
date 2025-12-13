@@ -284,31 +284,62 @@ readIndex <- function (rawfile)
 extractMethodInfo <- function(methodFile, stdout = "", stderr = "", tmpdir = tempdir()){
   exe <- .rawrrAssembly()
   
-  methodFile <- normalizePath(methodFile, winslash = "\\", mustWork = TRUE)
+  methodFile <- normalizePath(methodFile)
   .checkMethodFile(methodFile)
   
   methodInfoOutput <- tempfile(fileext = ".txt", tmpdir = tmpdir)
-  if (.Platform$OS.type == "windows") {
-    methodInfoOutput <- normalizePath(methodInfoOutput, winslash = "\\", mustWork = FALSE)
-  }
-  
   tfstdout <- tempfile(fileext = ".stdout", tmpdir = tmpdir)
   tfstderr <- tempfile(fileext = ".stderr", tmpdir = tmpdir)
-
-  # Don't use shQuote on Windows - pass paths directly
+  
   if (.Platform$OS.type == "windows") {
-    system2args <- c("extract-method-info", methodFile, methodInfoOutput)
+    # Change working directory to where the executable is located
+    # This ensures the .NET runtime can find dependent assemblies
+    exeDir <- dirname(exe)
+    
+    # Create a batch file that changes directory before running
+    batchFile <- tempfile(fileext = ".bat", tmpdir = tmpdir)
+    batchContent <- sprintf(
+'@echo off
+cd /d "%s"
+"%s" extract-method-info "%s" "%s"
+exit %%ERRORLEVEL%%',
+      exeDir,
+      basename(exe),
+      methodFile,
+      methodInfoOutput
+    )
+    writeLines(batchContent, batchFile)
+    
+    message("Created batch file: ", batchFile)
+    message("Batch contents:\n", paste(readLines(batchFile), collapse = "\n"))
+    
+    rvs <- system2("cmd.exe", 
+                   args = c("/c", shQuote(batchFile)),
+                   stdout = tfstdout,
+                   stderr = tfstderr)
   } else {
     system2args <- c("extract-method-info", shQuote(methodFile), shQuote(methodInfoOutput))
+    rvs <- system2(exe, args = system2args, stdout = tfstdout, stderr = tfstderr)
   }
   
-  rvs <- system2(exe,
-                  args = system2args,
-                  stdout = tfstdout,
-                  stderr = tfstderr)
+  message("Return code: ", rvs)
+  
+  # Always show stderr/stdout for debugging
+  if (file.exists(tfstderr)) {
+    stderr_content <- readLines(tfstderr)
+    if (length(stderr_content) > 0) {
+      message("\nSTDERR:\n", paste(stderr_content, collapse = "\n"))
+    }
+  }
+  if (file.exists(tfstdout)) {
+    stdout_content <- readLines(tfstdout)
+    if (length(stdout_content) > 0) {
+      message("\nSTDOUT:\n", paste(stdout_content, collapse = "\n"))
+    }
+  }
   
   if (isFALSE(file.exists(methodInfoOutput))){
-    errmsg <- sprintf("Output file to read does not exist. '%s' failed.
+    errmsg <- sprintf("Output file does not exist. '%s' failed.
 Please check the debug files:\n\tstderr\t=\t%s\n\tstdout\t=\t%s",
                       .rawrrAssembly(), tfstderr, tfstdout)
     stop(errmsg)
@@ -1530,8 +1561,7 @@ plot.rawrrChromatogramSet <- function(x, diagnostic = FALSE, ...){
 
 }
 
-#' Retrieve master scan of scan listed in scan index
-#'
+## retrieve master scan of scan listed in scan index
 #' @param x A scan index returned by \code{readIndex}.
 #' @param scanNumber The scan number that should be inspected for the presence
 #' of a master scan.
