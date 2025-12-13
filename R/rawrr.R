@@ -355,7 +355,7 @@ Please check the debug files:\n\tstderr\t=\t%s\n\tstdout\t=\t%s\nand the System 
 #                       tfstderr, tfstdout)
 #     stop(errmsg)
 #   }
-}
+# }
 
 #' Extract the sample information from a sequence file.
 #'
