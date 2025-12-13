@@ -425,7 +425,7 @@ getTuneLogs <- function(rawfile, stdout = "", stderr = ""){
   
   .rawrrSystem2Source(rawfile, input = NULL, rawrrArgs="get-tune-logs",
                      stdout = stdout, stderr = stderr) -> e
-  e$tunelogs
+  return(e$tunelogs)
 }
 
 #' Extract LC Pressure information from the RAW file.
