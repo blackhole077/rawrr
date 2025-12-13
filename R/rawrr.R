@@ -281,7 +281,7 @@ readIndex <- function (rawfile)
 #'
 #' @examples
 #' rawrr::sampleFilePath() |> rawrr::extractMethodInfo()
-extractMethodInfo <- function(methodFile, stdout = "", stderr = ""){
+extractMethodInfo <- function(methodFile, stdout = "", stderr = "", tmpdir = tempdir()){
   
   exe <- .rawrrAssembly()
 
@@ -316,7 +316,7 @@ Please check the debug files:\n\t%s\n\t%s\nand the System Requirements",
 #'
 #' @examples
 #' rawrr::sampleFilePath() |> rawrr::extractSampleInfo()
-extractSampleInfo <- function(sequenceFile, stdout = "", stderr = ""){
+extractSampleInfo <- function(sequenceFile, stdout = "", stderr = "", tmpdir = tempdir()){
   
   exe <- .rawrrAssembly()
 
