@@ -79,6 +79,18 @@
   }
 }
 
+.checkSequenceFile <- function(sequencefile){
+  if (!file.exists(sequencefile)){
+    msg <- sprintf("File '%s' does not exist.", sequencefile)
+    stop(msg)
+  }
+
+  if (!grepl("\\.srf$", sequencefile)){
+    msg <- sprintf("File '%s' does not have the .srf extension.", sequencefile)
+    stop(msg)
+  }
+}
+
 .writeRData <-
   function(rawfile, outputfile=paste0(rawfile, ".RData"), tmpdir=tempdir()){
 
